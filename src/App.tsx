@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
-import { Square, Circle as CircleIcon, Triangle as TriangleIcon, CircleDot, Hexagon, Octagon, Download, ZoomIn, ZoomOut, Maximize, FileText, Sparkles, Loader2, Upload, X, Pencil, Type, Trash2, RotateCcw } from 'lucide-react';
+import { Square, Circle as CircleIcon, Triangle as TriangleIcon, CircleDot, Hexagon, Octagon, Download, ZoomIn, ZoomOut, Maximize, FileText, Sparkles, Loader2, Upload, X, Pencil, Type, RotateCcw, Grid, Magnet } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { GoogleGenAI, Type as GenAIType, ThinkingLevel } from '@google/genai';
 import opentype from 'opentype.js';
@@ -85,15 +85,25 @@ const preprocessImage = (dataUrl: string): Promise<string> => {
 };
 
 // Convert text to SVG path using opentype.js
-const textToPath = async (text: string, fontSize: number, fontUrl?: string): Promise<{ path: string; width: number; height: number }> => {
+// Now fontSize is in mm (target height of the text)
+const textToPath = async (text: string, targetHeightMM: number, fontUrl?: string): Promise<{ path: string; width: number; height: number }> => {
   const url = fontUrl || 'https://cdn.jsdelivr.net/npm/@fontsource/inter/files/inter-latin-700-normal.woff';
   
   try {
     const font = await opentype.load(url);
-    const path = font.getPath(text, 0, fontSize, fontSize);
+    // First, render at a reference size to get the actual dimensions
+    const refSize = 1000;
+    const refPath = font.getPath(text, 0, refSize, refSize);
+    const refBbox = refPath.getBoundingBox();
+    const refHeight = refBbox.y2 - refBbox.y1;
+    
+    // Calculate the actual font size needed to achieve the target height in mm
+    const scale = targetHeightMM / refHeight;
+    const actualFontSize = refSize * scale;
+    
+    const path = font.getPath(text, 0, actualFontSize, actualFontSize);
     const bbox = path.getBoundingBox();
     
-    // Normalize to positive coordinates
     const pathData = path.toPathData(2);
     const width = bbox.x2 - bbox.x1;
     const height = bbox.y2 - bbox.y1;
@@ -104,27 +114,24 @@ const textToPath = async (text: string, fontSize: number, fontUrl?: string): Pro
     return { path: translatedPath, width, height };
   } catch (error) {
     console.error('Failed to load font:', error);
-    // Fallback: create a simple rectangle
+    // Fallback: create a simple rectangle with target dimensions
+    const width = targetHeightMM * text.length * 0.6;
     return { 
-      path: `M 0 0 L ${fontSize * text.length * 0.6} 0 L ${fontSize * text.length * 0.6} ${fontSize} L 0 ${fontSize} Z`, 
-      width: fontSize * text.length * 0.6, 
-      height: fontSize 
+      path: `M 0 0 L ${width} 0 L ${width} ${targetHeightMM} L 0 ${targetHeightMM} Z`, 
+      width, 
+      height: targetHeightMM 
     };
   }
 };
 
-// Logo SVG as embedded string for PDF generation
-const LOGO_LE_SVG = `<svg width="300" height="100" viewBox="0 0 612 280" fill="none" xmlns="http://www.w3.org/2000/svg">
-<g clip-path="url(#clip0)">
-<path fill-rule="evenodd" clip-rule="evenodd" d="M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z" fill="#007BFF"/>
-<path d="M272.309 55.2098C251.128 60.6741 238.96 78.5583 243.062 98.197C244.526 105.208 251.478 118.167 256.28 122.834C258.073 124.578 258.407 126.372 257.321 128.432C256.962 129.112 254.051 132.577 250.852 136.132C242.14 145.812 238.323 152.1 235.202 161.912C233.132 168.421 232.624 179.307 234.055 186.485C236.031 196.394 240.794 205.011 248.217 212.106C254.995 218.585 263.262 223.007 272.309 224.995C278.086 226.264 289.33 226.29 294.815 225.047C304.554 222.84 314.699 217.751 321.462 211.678C323.296 210.031 325.257 208.707 325.819 208.707C326.381 208.707 328.301 210.031 330.135 211.678C336.898 217.751 347.043 222.84 356.782 225.047C362.267 226.29 373.511 226.264 379.288 224.995C388.335 223.007 396.602 218.585 403.38 212.106C410.803 205.011 415.566 196.394 417.542 186.485C418.973 179.307 418.465 168.421 416.395 161.912C413.274 152.1 409.457 145.812 400.745 136.132C397.546 132.577 394.635 129.112 394.276 128.432C393.19 126.372 393.524 124.578 395.317 122.834C400.119 118.167 407.071 105.208 408.535 98.197C412.637 78.5583 400.469 60.6741 379.288 55.2098C362.626 50.9095 344.156 58.1893 336.008 73.2256L333.699 77.4963L325.819 77.4963L317.939 77.4963L315.63 73.2256C307.482 58.1893 288.972 50.9095 272.309 55.2098Z" fill="#007BFF"/>
-</g>
-<defs>
-<clipPath id="clip0">
-<rect width="612" height="280" fill="white"/>
-</clipPath>
-</defs>
-</svg>`;
+// L&E Logo SVG path (correct version)
+const LOGO_LE_PATH = `M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z`;
+
+const LOGO_LE_L_PATH = `M104.293 73.4609V206.239H196.665V186.076H126.636V73.4609H104.293Z`;
+
+const LOGO_LE_AMPERSAND_PATH = `M325.799 140C340.293 140 352.093 128.2 352.093 113.706C352.093 99.2124 340.293 87.4118 325.799 87.4118C311.306 87.4118 299.505 99.2124 299.505 113.706C299.505 128.2 311.306 140 325.799 140ZM325.799 192.588C340.293 192.588 352.093 180.788 352.093 166.294C352.093 151.8 340.293 140 325.799 140C311.306 140 299.505 151.8 299.505 166.294C299.505 180.788 311.306 192.588 325.799 192.588ZM282.152 113.706C282.152 89.7176 301.811 70.0588 325.799 70.0588C349.788 70.0588 369.447 89.7176 369.447 113.706C369.447 125.127 365.004 135.503 357.799 143.294L369.447 155.882L357.799 166.294L346.152 153.706C338.358 162.092 327.093 167.647 314.505 168.706L314.505 186.059H337.093V206.222H282.152V168.706C264.993 166.596 251.505 151.8 251.505 133.706C251.505 118.588 261.358 105.647 274.858 101.176L282.152 113.706ZM269.505 133.706C269.505 142.788 276.799 150.353 285.799 150.882V116.529C276.799 117.059 269.505 124.624 269.505 133.706Z`;
+
+const LOGO_LE_E_PATH = `M413.505 73.4609V206.239H507.847V186.076H435.847V149.559H498.259V129.397H435.847V93.6239H507.847V73.4609H413.505Z`;
 
 export default function App() {
   const [shape, setShape] = useState<ShapeType>('rectangle');
@@ -172,12 +179,15 @@ export default function App() {
   // Polygon drawing state
   const [polygonPoints, setPolygonPoints] = useState<Point[]>([]);
   const [isDrawingPolygon, setIsDrawingPolygon] = useState(false);
-  const [polygonScale, setPolygonScale] = useState(1);
+  const [polygonScale, setPolygonScale] = useState(10); // mm per grid unit
+  const [polygonGridSize, setPolygonGridSize] = useState(20); // pixels per grid cell
+  const [polygonCanvasZoom, setPolygonCanvasZoom] = useState(1);
+  const [snapToGrid, setSnapToGrid] = useState(true);
   const polygonCanvasRef = useRef<SVGSVGElement>(null);
 
   // Text shape state
   const [textInput, setTextInput] = useState('A');
-  const [textFontSize, setTextFontSize] = useState(500);
+  const [textHeightMM, setTextHeightMM] = useState(500); // Target height in mm
   const [textPath, setTextPath] = useState('');
   const [textBounds, setTextBounds] = useState({ width: 500, height: 500 });
   const [isLoadingText, setIsLoadingText] = useState(false);
@@ -247,7 +257,7 @@ export default function App() {
     if (!textInput.trim()) return;
     setIsLoadingText(true);
     try {
-      const result = await textToPath(textInput, textFontSize);
+      const result = await textToPath(textInput, textHeightMM);
       setTextPath(result.path);
       setTextBounds({ width: result.width, height: result.height });
     } catch (error) {
@@ -255,31 +265,30 @@ export default function App() {
     } finally {
       setIsLoadingText(false);
     }
-  }, [textInput, textFontSize]);
+  }, [textInput, textHeightMM]);
 
   React.useEffect(() => {
     if (shape === 'text') {
       generateTextPath();
     }
-  }, [shape, textInput, textFontSize, generateTextPath]);
+  }, [shape, textInput, textHeightMM, generateTextPath]);
 
-  // Generate polygon path from points
+  // Generate polygon path from points (in mm)
   const polygonPath = useMemo(() => {
     if (polygonPoints.length < 3) return '';
-    const scaled = polygonPoints.map(p => ({ x: p.x * polygonScale, y: p.y * polygonScale }));
-    return `M ${scaled[0].x} ${scaled[0].y} ` + scaled.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-  }, [polygonPoints, polygonScale]);
+    // Points are already in mm (gridUnits * polygonScale)
+    return `M ${polygonPoints[0].x} ${polygonPoints[0].y} ` + polygonPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+  }, [polygonPoints]);
 
   // Polygon bounding box
   const polygonBounds = useMemo(() => {
     if (polygonPoints.length < 3) return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100 };
-    const scaled = polygonPoints.map(p => ({ x: p.x * polygonScale, y: p.y * polygonScale }));
-    const minX = Math.min(...scaled.map(p => p.x));
-    const minY = Math.min(...scaled.map(p => p.y));
-    const maxX = Math.max(...scaled.map(p => p.x));
-    const maxY = Math.max(...scaled.map(p => p.y));
+    const minX = Math.min(...polygonPoints.map(p => p.x));
+    const minY = Math.min(...polygonPoints.map(p => p.y));
+    const maxX = Math.max(...polygonPoints.map(p => p.x));
+    const maxY = Math.max(...polygonPoints.map(p => p.y));
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
-  }, [polygonPoints, polygonScale]);
+  }, [polygonPoints]);
 
   const result = useMemo(() => {
     let modules: {x: number, y: number, w: number, h: number}[] = [];
@@ -395,11 +404,11 @@ export default function App() {
       bbW = polygonBounds.width;
       bbH = polygonBounds.height;
       // Normalize polygon to start from 0,0
-      const scaled = polygonPoints.map(p => ({ 
-        x: (p.x * polygonScale) - polygonBounds.minX, 
-        y: (p.y * polygonScale) - polygonBounds.minY 
+      const normalized = polygonPoints.map(p => ({ 
+        x: p.x - polygonBounds.minX, 
+        y: p.y - polygonBounds.minY 
       }));
-      shapePath = `M ${scaled[0].x} ${scaled[0].y} ` + scaled.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+      shapePath = `M ${normalized[0].x} ${normalized[0].y} ` + normalized.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
     } else if (shape === 'text') {
       if (!textPath) return { modules: [], shapePath: '', bbW: 100, bbH: 100, error: 'Enter text to generate shape' };
       bbW = textBounds.width;
@@ -533,8 +542,8 @@ export default function App() {
             } else if (shape === 'polygon') {
               // Point in polygon test for custom polygons
               const normalizedPoly = polygonPoints.map(p => ({ 
-                x: (p.x * polygonScale) - polygonBounds.minX, 
-                y: (p.y * polygonScale) - polygonBounds.minY 
+                x: p.x - polygonBounds.minX, 
+                y: p.y - polygonBounds.minY 
               }));
               const pointInPolygon = (pt: Point, poly: Point[]) => {
                 let inside = false;
@@ -560,7 +569,7 @@ export default function App() {
       }
     }
     return { modules, shapePath, bbW, bbH, error };
-  }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath, polygonPoints, polygonScale, polygonBounds, textPath, textBounds]);
+  }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath, polygonPoints, polygonBounds, textPath, textBounds]);
 
   let minDx = Infinity;
   let modX: {x: number, y: number, w: number, h: number} | null = null;
@@ -691,17 +700,31 @@ Use Chain-of-Thought reasoning to:
     }
   };
 
-  // Polygon drawing handlers
+  // Polygon drawing handlers with snap to grid
   const handlePolygonCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!isDrawingPolygon) return;
     const svg = polygonCanvasRef.current;
     if (!svg) return;
     
     const rect = svg.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const viewBoxWidth = 600 / polygonCanvasZoom;
+    const viewBoxHeight = 400 / polygonCanvasZoom;
     
-    setPolygonPoints([...polygonPoints, { x, y }]);
+    // Convert screen coordinates to SVG coordinates
+    let x = ((e.clientX - rect.left) / rect.width) * viewBoxWidth;
+    let y = ((e.clientY - rect.top) / rect.height) * viewBoxHeight;
+    
+    // Snap to grid if enabled
+    if (snapToGrid) {
+      x = Math.round(x / polygonGridSize) * polygonGridSize;
+      y = Math.round(y / polygonGridSize) * polygonGridSize;
+    }
+    
+    // Convert to mm (grid units * scale)
+    const xMM = x * polygonScale / polygonGridSize;
+    const yMM = y * polygonScale / polygonGridSize;
+    
+    setPolygonPoints([...polygonPoints, { x: xMM, y: yMM }]);
   };
 
   const handlePolygonComplete = () => {
@@ -775,17 +798,12 @@ Use Chain-of-Thought reasoning to:
         <rect x="100" y="100" width="4000" height="2770" fill="none" stroke="black" stroke-width="5"/>
         <rect x="120" y="120" width="3960" height="2730" fill="none" stroke="black" stroke-width="2"/>
         
-        <g transform="translate(1700, 500)">
-          <svg width="800" height="366" viewBox="0 0 612 280">
-            <g clip-path="url(#clip0_cover)">
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z" fill="#007BFF"/>
-              <path d="M272.309 55.2098C251.128 60.6741 238.96 78.5583 243.062 98.197C244.526 105.208 251.478 118.167 256.28 122.834C258.073 124.578 258.407 126.372 257.321 128.432C256.962 129.112 254.051 132.577 250.852 136.132C242.14 145.812 238.323 152.1 235.202 161.912C233.132 168.421 232.624 179.307 234.055 186.485C236.031 196.394 240.794 205.011 248.217 212.106C254.995 218.585 263.262 223.007 272.309 224.995C278.086 226.264 289.33 226.29 294.815 225.047C304.554 222.84 314.699 217.751 321.462 211.678C323.296 210.031 325.257 208.707 325.819 208.707C326.381 208.707 328.301 210.031 330.135 211.678C336.898 217.751 347.043 222.84 356.782 225.047C362.267 226.29 373.511 226.264 379.288 224.995C388.335 223.007 396.602 218.585 403.38 212.106C410.803 205.011 415.566 196.394 417.542 186.485C418.973 179.307 418.465 168.421 416.395 161.912C413.274 152.1 409.457 145.812 400.745 136.132C397.546 132.577 394.635 129.112 394.276 128.432C393.19 126.372 393.524 124.578 395.317 122.834C400.119 118.167 407.071 105.208 408.535 98.197C412.637 78.5583 400.469 60.6741 379.288 55.2098C362.626 50.9095 344.156 58.1893 336.008 73.2256L333.699 77.4963L325.819 77.4963L317.939 77.4963L315.63 73.2256C307.482 58.1893 288.972 50.9095 272.309 55.2098Z" fill="#007BFF"/>
-            </g>
-            <defs>
-              <clipPath id="clip0_cover">
-                <rect width="612" height="280" fill="white"/>
-              </clipPath>
-            </defs>
+        <g transform="translate(1500, 400)">
+          <svg width="1200" height="549" viewBox="0 0 612 280">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="${LOGO_LE_PATH}" fill="#007BFF"/>
+            <path d="${LOGO_LE_L_PATH}" fill="#007BFF"/>
+            <path d="${LOGO_LE_AMPERSAND_PATH}" fill="#007BFF"/>
+            <path d="${LOGO_LE_E_PATH}" fill="#007BFF"/>
           </svg>
         </g>
 
@@ -858,15 +876,10 @@ Use Chain-of-Thought reasoning to:
           
           <g transform="translate(90, 80)">
             <svg width="400" height="183" viewBox="0 0 612 280">
-              <g clip-path="url(#clip0_page)">
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z" fill="#007BFF"/>
-                <path d="M272.309 55.2098C251.128 60.6741 238.96 78.5583 243.062 98.197C244.526 105.208 251.478 118.167 256.28 122.834C258.073 124.578 258.407 126.372 257.321 128.432C256.962 129.112 254.051 132.577 250.852 136.132C242.14 145.812 238.323 152.1 235.202 161.912C233.132 168.421 232.624 179.307 234.055 186.485C236.031 196.394 240.794 205.011 248.217 212.106C254.995 218.585 263.262 223.007 272.309 224.995C278.086 226.264 289.33 226.29 294.815 225.047C304.554 222.84 314.699 217.751 321.462 211.678C323.296 210.031 325.257 208.707 325.819 208.707C326.381 208.707 328.301 210.031 330.135 211.678C336.898 217.751 347.043 222.84 356.782 225.047C362.267 226.29 373.511 226.264 379.288 224.995C388.335 223.007 396.602 218.585 403.38 212.106C410.803 205.011 415.566 196.394 417.542 186.485C418.973 179.307 418.465 168.421 416.395 161.912C413.274 152.1 409.457 145.812 400.745 136.132C397.546 132.577 394.635 129.112 394.276 128.432C393.19 126.372 393.524 124.578 395.317 122.834C400.119 118.167 407.071 105.208 408.535 98.197C412.637 78.5583 400.469 60.6741 379.288 55.2098C362.626 50.9095 344.156 58.1893 336.008 73.2256L333.699 77.4963L325.819 77.4963L317.939 77.4963L315.63 73.2256C307.482 58.1893 288.972 50.9095 272.309 55.2098Z" fill="#007BFF"/>
-              </g>
-              <defs>
-                <clipPath id="clip0_page">
-                  <rect width="612" height="280" fill="white"/>
-                </clipPath>
-              </defs>
+              <path fill-rule="evenodd" clip-rule="evenodd" d="${LOGO_LE_PATH}" fill="#007BFF"/>
+              <path d="${LOGO_LE_L_PATH}" fill="#007BFF"/>
+              <path d="${LOGO_LE_AMPERSAND_PATH}" fill="#007BFF"/>
+              <path d="${LOGO_LE_E_PATH}" fill="#007BFF"/>
             </svg>
           </g>
           
@@ -1051,6 +1064,10 @@ Use Chain-of-Thought reasoning to:
     img.src = url;
   };
 
+  // Calculate polygon canvas viewBox based on zoom
+  const polygonViewBoxWidth = 600 / polygonCanvasZoom;
+  const polygonViewBoxHeight = 400 / polygonCanvasZoom;
+
   return (
     <div className="flex h-screen bg-neutral-100 font-sans text-neutral-900">
       <div className="w-80 bg-white border-r border-neutral-200 flex flex-col shadow-sm z-10">
@@ -1134,54 +1151,128 @@ Use Chain-of-Thought reasoning to:
             </div>
           </div>
 
-          {/* Polygon Drawing Panel */}
+          {/* Polygon Drawing Panel - Enhanced */}
           {shape === 'polygon' && (
             <div className="space-y-3 p-3 bg-green-50 rounded-lg border border-green-100">
               <label className="text-xs font-semibold uppercase tracking-wider text-green-700">Custom Polygon Builder</label>
               
-              <div className="relative w-full h-48 bg-white rounded-lg border-2 border-dashed border-green-300 overflow-hidden">
+              {/* Toolbar */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button 
+                  onClick={() => setSnapToGrid(!snapToGrid)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${snapToGrid ? 'bg-green-600 text-white' : 'bg-white text-green-700 border border-green-300'}`}
+                  title="Snap to Grid"
+                >
+                  <Magnet size={14} /> Snap
+                </button>
+                <button 
+                  onClick={() => setPolygonCanvasZoom(z => Math.min(z * 1.5, 4))}
+                  className="p-1.5 bg-white rounded border border-green-300 text-green-700 hover:bg-green-100"
+                  title="Zoom In"
+                >
+                  <ZoomIn size={14} />
+                </button>
+                <button 
+                  onClick={() => setPolygonCanvasZoom(z => Math.max(z / 1.5, 0.5))}
+                  className="p-1.5 bg-white rounded border border-green-300 text-green-700 hover:bg-green-100"
+                  title="Zoom Out"
+                >
+                  <ZoomOut size={14} />
+                </button>
+                <button 
+                  onClick={() => setPolygonCanvasZoom(1)}
+                  className="p-1.5 bg-white rounded border border-green-300 text-green-700 hover:bg-green-100"
+                  title="Reset Zoom"
+                >
+                  <Maximize size={14} />
+                </button>
+                <span className="text-[10px] text-green-600 ml-auto">{Math.round(polygonCanvasZoom * 100)}%</span>
+              </div>
+              
+              {/* Canvas */}
+              <div className="relative w-full h-64 bg-white rounded-lg border-2 border-dashed border-green-300 overflow-hidden">
                 <svg 
                   ref={polygonCanvasRef}
                   width="100%" 
                   height="100%" 
-                  viewBox="0 0 300 200"
+                  viewBox={`0 0 ${polygonViewBoxWidth} ${polygonViewBoxHeight}`}
                   className={`${isDrawingPolygon ? 'cursor-crosshair' : 'cursor-default'}`}
                   onClick={handlePolygonCanvasClick}
+                  preserveAspectRatio="xMidYMid meet"
                 >
                   {/* Grid background */}
                   <defs>
-                    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e7eb" strokeWidth="0.5"/>
+                    <pattern id="smallGrid" width={polygonGridSize} height={polygonGridSize} patternUnits="userSpaceOnUse">
+                      <path d={`M ${polygonGridSize} 0 L 0 0 0 ${polygonGridSize}`} fill="none" stroke="#e5e7eb" strokeWidth="0.5"/>
+                    </pattern>
+                    <pattern id="largeGrid" width={polygonGridSize * 5} height={polygonGridSize * 5} patternUnits="userSpaceOnUse">
+                      <rect width={polygonGridSize * 5} height={polygonGridSize * 5} fill="url(#smallGrid)"/>
+                      <path d={`M ${polygonGridSize * 5} 0 L 0 0 0 ${polygonGridSize * 5}`} fill="none" stroke="#d1d5db" strokeWidth="1"/>
                     </pattern>
                   </defs>
-                  <rect width="100%" height="100%" fill="url(#grid)" />
+                  <rect width="100%" height="100%" fill="url(#largeGrid)" />
+                  
+                  {/* Grid labels */}
+                  {Array.from({ length: Math.ceil(polygonViewBoxWidth / (polygonGridSize * 5)) + 1 }).map((_, i) => (
+                    <text key={`x-${i}`} x={i * polygonGridSize * 5 + 2} y={12} fontSize="8" fill="#9ca3af">
+                      {i * 5 * polygonScale}
+                    </text>
+                  ))}
+                  {Array.from({ length: Math.ceil(polygonViewBoxHeight / (polygonGridSize * 5)) + 1 }).map((_, i) => (
+                    <text key={`y-${i}`} x={2} y={i * polygonGridSize * 5 + 12} fontSize="8" fill="#9ca3af">
+                      {i * 5 * polygonScale}
+                    </text>
+                  ))}
                   
                   {/* Draw polygon preview */}
                   {polygonPoints.length > 0 && (
                     <>
                       <path 
                         d={polygonPoints.length >= 3 
-                          ? `M ${polygonPoints[0].x} ${polygonPoints[0].y} ` + 
-                            polygonPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z'
-                          : `M ${polygonPoints[0].x} ${polygonPoints[0].y} ` + 
-                            polygonPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
+                          ? `M ${polygonPoints[0].x * polygonGridSize / polygonScale} ${polygonPoints[0].y * polygonGridSize / polygonScale} ` + 
+                            polygonPoints.slice(1).map(p => `L ${p.x * polygonGridSize / polygonScale} ${p.y * polygonGridSize / polygonScale}`).join(' ') + ' Z'
+                          : `M ${polygonPoints[0].x * polygonGridSize / polygonScale} ${polygonPoints[0].y * polygonGridSize / polygonScale} ` + 
+                            polygonPoints.slice(1).map(p => `L ${p.x * polygonGridSize / polygonScale} ${p.y * polygonGridSize / polygonScale}`).join(' ')
                         }
                         fill={polygonPoints.length >= 3 ? "rgba(34, 197, 94, 0.2)" : "none"}
                         stroke="#22c55e"
                         strokeWidth="2"
                       />
                       {polygonPoints.map((p, i) => (
-                        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#22c55e" stroke="white" strokeWidth="2" />
+                        <g key={i}>
+                          <circle 
+                            cx={p.x * polygonGridSize / polygonScale} 
+                            cy={p.y * polygonGridSize / polygonScale} 
+                            r="5" 
+                            fill="#22c55e" 
+                            stroke="white" 
+                            strokeWidth="2" 
+                          />
+                          <text 
+                            x={p.x * polygonGridSize / polygonScale + 8} 
+                            y={p.y * polygonGridSize / polygonScale - 4} 
+                            fontSize="10" 
+                            fill="#166534"
+                          >
+                            {i + 1}
+                          </text>
+                        </g>
                       ))}
                     </>
                   )}
                   
-                  {isDrawingPolygon && (
-                    <text x="150" y="15" textAnchor="middle" fontSize="10" fill="#6b7280">
+                  {isDrawingPolygon && polygonPoints.length === 0 && (
+                    <text x={polygonViewBoxWidth / 2} y={20} textAnchor="middle" fontSize="12" fill="#6b7280">
                       Click to add points, then click "Done"
                     </text>
                   )}
                 </svg>
+              </div>
+              
+              {/* Controls */}
+              <div className="grid grid-cols-2 gap-2">
+                <Input label="Grid Size (mm)" value={polygonScale} onChange={setPolygonScale} />
+                <Input label="Grid Pixels" value={polygonGridSize} onChange={setPolygonGridSize} />
               </div>
               
               <div className="flex gap-2">
@@ -1210,17 +1301,14 @@ Use Chain-of-Thought reasoning to:
               </div>
 
               {polygonPoints.length >= 3 && (
-                <div className="mt-2">
-                  <Input label="Scale (mm per pixel)" value={polygonScale} onChange={setPolygonScale} />
-                  <p className="text-xs text-green-600 mt-1">
-                    Size: {Math.round(polygonBounds.width)}mm x {Math.round(polygonBounds.height)}mm
-                  </p>
-                </div>
+                <p className="text-xs text-green-600 mt-1">
+                  Size: {Math.round(polygonBounds.width)}mm x {Math.round(polygonBounds.height)}mm
+                </p>
               )}
             </div>
           )}
 
-          {/* Text Shape Panel */}
+          {/* Text Shape Panel - Fixed */}
           {shape === 'text' && (
             <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
               <label className="text-xs font-semibold uppercase tracking-wider text-amber-700">Text Shape Builder</label>
@@ -1236,7 +1324,7 @@ Use Chain-of-Thought reasoning to:
                 />
               </div>
               
-              <Input label="Font Size (mm)" value={textFontSize} onChange={setTextFontSize} />
+              <Input label="Text Height (mm)" value={textHeightMM} onChange={setTextHeightMM} />
               
               {isLoadingText && (
                 <div className="flex items-center justify-center py-2">
@@ -1246,16 +1334,22 @@ Use Chain-of-Thought reasoning to:
               )}
               
               {textPath && !isLoadingText && (
-                <div className="relative w-full h-24 bg-white rounded-lg border border-amber-200 overflow-hidden flex items-center justify-center">
-                  <svg viewBox={`0 0 ${textBounds.width} ${textBounds.height}`} className="max-h-full max-w-full p-2">
+                <div className="relative w-full h-32 bg-white rounded-lg border border-amber-200 overflow-hidden flex items-center justify-center p-2">
+                  <svg 
+                    viewBox={`0 0 ${textBounds.width} ${textBounds.height}`} 
+                    className="max-h-full max-w-full"
+                    preserveAspectRatio="xMidYMid meet"
+                  >
                     <path d={textPath} fill="#f59e0b" />
                   </svg>
                 </div>
               )}
               
-              <p className="text-xs text-amber-600">
-                {textBounds.width > 0 && `Size: ${Math.round(textBounds.width)}mm x ${Math.round(textBounds.height)}mm`}
-              </p>
+              {textBounds.width > 0 && (
+                <p className="text-xs text-amber-600">
+                  Actual Size: {Math.round(textBounds.width)}mm x {Math.round(textBounds.height)}mm
+                </p>
+              )}
             </div>
           )}
 
