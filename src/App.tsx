@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { Square, Circle as CircleIcon, Triangle as TriangleIcon, CircleDot, Hexagon, Octagon, Download, ZoomIn, ZoomOut, Maximize, FileText, Sparkles, Loader2, Upload, X } from 'lucide-react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { Square, Circle as CircleIcon, Triangle as TriangleIcon, CircleDot, Hexagon, Octagon, Download, ZoomIn, ZoomOut, Maximize, FileText, Sparkles, Loader2, Upload, X, Pencil, Type, Trash2, RotateCcw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, Type as GenAIType, ThinkingLevel } from '@google/genai';
+import opentype from 'opentype.js';
 
-type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'semicircle' | 'u-shape' | 'c-shape' | 't-shape' | 'hollow-rect' | 'hexagon' | 'octagon' | 'custom';
+type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'semicircle' | 'u-shape' | 'c-shape' | 't-shape' | 'hollow-rect' | 'hexagon' | 'octagon' | 'custom' | 'polygon' | 'text';
 type LayoutType = 'grid' | 'staggered';
 
 interface Point { x: number; y: number; }
@@ -83,6 +84,48 @@ const preprocessImage = (dataUrl: string): Promise<string> => {
   });
 };
 
+// Convert text to SVG path using opentype.js
+const textToPath = async (text: string, fontSize: number, fontUrl?: string): Promise<{ path: string; width: number; height: number }> => {
+  const url = fontUrl || 'https://cdn.jsdelivr.net/npm/@fontsource/inter/files/inter-latin-700-normal.woff';
+  
+  try {
+    const font = await opentype.load(url);
+    const path = font.getPath(text, 0, fontSize, fontSize);
+    const bbox = path.getBoundingBox();
+    
+    // Normalize to positive coordinates
+    const pathData = path.toPathData(2);
+    const width = bbox.x2 - bbox.x1;
+    const height = bbox.y2 - bbox.y1;
+    
+    // Translate path to start from 0,0
+    const translatedPath = `M ${-bbox.x1} ${-bbox.y1} ` + pathData;
+    
+    return { path: translatedPath, width, height };
+  } catch (error) {
+    console.error('Failed to load font:', error);
+    // Fallback: create a simple rectangle
+    return { 
+      path: `M 0 0 L ${fontSize * text.length * 0.6} 0 L ${fontSize * text.length * 0.6} ${fontSize} L 0 ${fontSize} Z`, 
+      width: fontSize * text.length * 0.6, 
+      height: fontSize 
+    };
+  }
+};
+
+// Logo SVG as embedded string for PDF generation
+const LOGO_LE_SVG = `<svg width="300" height="100" viewBox="0 0 612 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0)">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z" fill="#007BFF"/>
+<path d="M272.309 55.2098C251.128 60.6741 238.96 78.5583 243.062 98.197C244.526 105.208 251.478 118.167 256.28 122.834C258.073 124.578 258.407 126.372 257.321 128.432C256.962 129.112 254.051 132.577 250.852 136.132C242.14 145.812 238.323 152.1 235.202 161.912C233.132 168.421 232.624 179.307 234.055 186.485C236.031 196.394 240.794 205.011 248.217 212.106C254.995 218.585 263.262 223.007 272.309 224.995C278.086 226.264 289.33 226.29 294.815 225.047C304.554 222.84 314.699 217.751 321.462 211.678C323.296 210.031 325.257 208.707 325.819 208.707C326.381 208.707 328.301 210.031 330.135 211.678C336.898 217.751 347.043 222.84 356.782 225.047C362.267 226.29 373.511 226.264 379.288 224.995C388.335 223.007 396.602 218.585 403.38 212.106C410.803 205.011 415.566 196.394 417.542 186.485C418.973 179.307 418.465 168.421 416.395 161.912C413.274 152.1 409.457 145.812 400.745 136.132C397.546 132.577 394.635 129.112 394.276 128.432C393.19 126.372 393.524 124.578 395.317 122.834C400.119 118.167 407.071 105.208 408.535 98.197C412.637 78.5583 400.469 60.6741 379.288 55.2098C362.626 50.9095 344.156 58.1893 336.008 73.2256L333.699 77.4963L325.819 77.4963L317.939 77.4963L315.63 73.2256C307.482 58.1893 288.972 50.9095 272.309 55.2098Z" fill="#007BFF"/>
+</g>
+<defs>
+<clipPath id="clip0">
+<rect width="612" height="280" fill="white"/>
+</clipPath>
+</defs>
+</svg>`;
+
 export default function App() {
   const [shape, setShape] = useState<ShapeType>('rectangle');
   const [customImage, setCustomImage] = useState<string | null>(null);
@@ -125,6 +168,19 @@ export default function App() {
   const [showCenterLines, setShowCenterLines] = useState(true);
   const [zoom, setZoom] = useState(1);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Polygon drawing state
+  const [polygonPoints, setPolygonPoints] = useState<Point[]>([]);
+  const [isDrawingPolygon, setIsDrawingPolygon] = useState(false);
+  const [polygonScale, setPolygonScale] = useState(1);
+  const polygonCanvasRef = useRef<SVGSVGElement>(null);
+
+  // Text shape state
+  const [textInput, setTextInput] = useState('A');
+  const [textFontSize, setTextFontSize] = useState(500);
+  const [textPath, setTextPath] = useState('');
+  const [textBounds, setTextBounds] = useState({ width: 500, height: 500 });
+  const [isLoadingText, setIsLoadingText] = useState(false);
 
   interface DocumentDetails {
     projectName: string;
@@ -185,6 +241,45 @@ export default function App() {
       setModuleName(`${modW}x${modH}`);
     }
   }, [modW, modH]);
+
+  // Generate text path when text input changes
+  const generateTextPath = useCallback(async () => {
+    if (!textInput.trim()) return;
+    setIsLoadingText(true);
+    try {
+      const result = await textToPath(textInput, textFontSize);
+      setTextPath(result.path);
+      setTextBounds({ width: result.width, height: result.height });
+    } catch (error) {
+      console.error('Failed to generate text path:', error);
+    } finally {
+      setIsLoadingText(false);
+    }
+  }, [textInput, textFontSize]);
+
+  React.useEffect(() => {
+    if (shape === 'text') {
+      generateTextPath();
+    }
+  }, [shape, textInput, textFontSize, generateTextPath]);
+
+  // Generate polygon path from points
+  const polygonPath = useMemo(() => {
+    if (polygonPoints.length < 3) return '';
+    const scaled = polygonPoints.map(p => ({ x: p.x * polygonScale, y: p.y * polygonScale }));
+    return `M ${scaled[0].x} ${scaled[0].y} ` + scaled.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+  }, [polygonPoints, polygonScale]);
+
+  // Polygon bounding box
+  const polygonBounds = useMemo(() => {
+    if (polygonPoints.length < 3) return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100 };
+    const scaled = polygonPoints.map(p => ({ x: p.x * polygonScale, y: p.y * polygonScale }));
+    const minX = Math.min(...scaled.map(p => p.x));
+    const minY = Math.min(...scaled.map(p => p.y));
+    const maxX = Math.max(...scaled.map(p => p.x));
+    const maxY = Math.max(...scaled.map(p => p.y));
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+  }, [polygonPoints, polygonScale]);
 
   const result = useMemo(() => {
     let modules: {x: number, y: number, w: number, h: number}[] = [];
@@ -295,15 +390,30 @@ export default function App() {
       if (rectW <= 0 || rectH <= 0) return { modules: [], shapePath: '', bbW: 100, bbH: 100, error: 'Dimensions must be > 0' };
       bbW = rectW; bbH = rectH;
       shapePath = customPath ? customPath : `M 0 0 L ${bbW} 0 L ${bbW} ${bbH} L 0 ${bbH} Z`;
+    } else if (shape === 'polygon') {
+      if (polygonPoints.length < 3) return { modules: [], shapePath: '', bbW: 100, bbH: 100, error: 'Draw at least 3 points' };
+      bbW = polygonBounds.width;
+      bbH = polygonBounds.height;
+      // Normalize polygon to start from 0,0
+      const scaled = polygonPoints.map(p => ({ 
+        x: (p.x * polygonScale) - polygonBounds.minX, 
+        y: (p.y * polygonScale) - polygonBounds.minY 
+      }));
+      shapePath = `M ${scaled[0].x} ${scaled[0].y} ` + scaled.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+    } else if (shape === 'text') {
+      if (!textPath) return { modules: [], shapePath: '', bbW: 100, bbH: 100, error: 'Enter text to generate shape' };
+      bbW = textBounds.width;
+      bbH = textBounds.height;
+      shapePath = textPath;
     }
 
     let customCtx: CanvasRenderingContext2D | null = null;
     let customPath2D: Path2D | null = null;
-    if (shape === 'custom' && customPath) {
+    if ((shape === 'custom' && customPath) || shape === 'polygon' || shape === 'text') {
       const canvas = document.createElement('canvas');
       customCtx = canvas.getContext('2d');
       if (customCtx) {
-        customPath2D = new Path2D(customPath);
+        customPath2D = new Path2D(shapePath);
       }
     }
 
@@ -420,6 +530,29 @@ export default function App() {
               } else {
                 isInside = corners.every(pt => pt.x >= 0 && pt.x <= bbW && pt.y >= 0 && pt.y <= bbH);
               }
+            } else if (shape === 'polygon') {
+              // Point in polygon test for custom polygons
+              const normalizedPoly = polygonPoints.map(p => ({ 
+                x: (p.x * polygonScale) - polygonBounds.minX, 
+                y: (p.y * polygonScale) - polygonBounds.minY 
+              }));
+              const pointInPolygon = (pt: Point, poly: Point[]) => {
+                let inside = false;
+                for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                  const xi = poly[i].x, yi = poly[i].y;
+                  const xj = poly[j].x, yj = poly[j].y;
+                  const intersect = ((yi > pt.y) !== (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
+                  if (intersect) inside = !inside;
+                }
+                return inside;
+              };
+              isInside = corners.every(pt => pointInPolygon(pt, normalizedPoly));
+            } else if (shape === 'text') {
+              if (customCtx && customPath2D) {
+                isInside = corners.every(pt => {
+                  return customCtx!.isPointInPath(customPath2D!, pt.x, pt.y);
+                });
+              }
             }
             if (isInside) modules.push({ x: cx - modW/2, y: cy - modH/2, w: modW, h: modH });
           }
@@ -427,7 +560,7 @@ export default function App() {
       }
     }
     return { modules, shapePath, bbW, bbH, error };
-  }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath]);
+  }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath, polygonPoints, polygonScale, polygonBounds, textPath, textBounds]);
 
   let minDx = Infinity;
   let modX: {x: number, y: number, w: number, h: number} | null = null;
@@ -481,7 +614,7 @@ export default function App() {
     setIsGenerating(true);
     try {
       const processedImageUrl = await preprocessImage(customImage);
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
       
       const mimeType = processedImageUrl.split(';')[0].split(':')[1];
       const base64Data = processedImageUrl.split(',')[1];
@@ -496,24 +629,24 @@ Use Chain-of-Thought reasoning to:
 6. Determine if the module layout is 'grid' or 'staggered'.`;
 
       const responseSchema = {
-        type: Type.OBJECT,
+        type: GenAIType.OBJECT,
         properties: {
           reasoning_steps: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
+            type: GenAIType.ARRAY,
+            items: { type: GenAIType.STRING },
             description: "Chain-of-thought reasoning steps analyzing the image."
           },
           path: {
-            type: Type.STRING,
+            type: GenAIType.STRING,
             description: "The 'd' attribute string for an SVG <path> that draws the main shape. MUST be normalized to a 100x100 viewBox (0,0 to 100,100)."
           },
-          overall_width: { type: Type.NUMBER, description: "Overall width of the main shape in mm. Null if not found." },
-          overall_height: { type: Type.NUMBER, description: "Overall height of the main shape in mm. Null if not found." },
-          module_width: { type: Type.NUMBER, description: "Width of a single module in mm. Null if not found." },
-          module_height: { type: Type.NUMBER, description: "Height of a single module in mm. Null if not found." },
-          module_spacing_x: { type: Type.NUMBER, description: "Horizontal center-to-center spacing between modules in mm. Null if not found." },
-          module_spacing_y: { type: Type.NUMBER, description: "Vertical center-to-center spacing between modules in mm. Null if not found." },
-          layout_type: { type: Type.STRING, description: "Layout pattern of the modules.", enum: ["grid", "staggered"] }
+          overall_width: { type: GenAIType.NUMBER, description: "Overall width of the main shape in mm. Null if not found." },
+          overall_height: { type: GenAIType.NUMBER, description: "Overall height of the main shape in mm. Null if not found." },
+          module_width: { type: GenAIType.NUMBER, description: "Width of a single module in mm. Null if not found." },
+          module_height: { type: GenAIType.NUMBER, description: "Height of a single module in mm. Null if not found." },
+          module_spacing_x: { type: GenAIType.NUMBER, description: "Horizontal center-to-center spacing between modules in mm. Null if not found." },
+          module_spacing_y: { type: GenAIType.NUMBER, description: "Vertical center-to-center spacing between modules in mm. Null if not found." },
+          layout_type: { type: GenAIType.STRING, description: "Layout pattern of the modules.", enum: ["grid", "staggered"] }
         },
         required: ["reasoning_steps", "path"]
       };
@@ -558,6 +691,28 @@ Use Chain-of-Thought reasoning to:
     }
   };
 
+  // Polygon drawing handlers
+  const handlePolygonCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!isDrawingPolygon) return;
+    const svg = polygonCanvasRef.current;
+    if (!svg) return;
+    
+    const rect = svg.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setPolygonPoints([...polygonPoints, { x, y }]);
+  };
+
+  const handlePolygonComplete = () => {
+    setIsDrawingPolygon(false);
+  };
+
+  const handlePolygonReset = () => {
+    setPolygonPoints([]);
+    setIsDrawingPolygon(true);
+  };
+
   const padding = Math.max(result.bbW, result.bbH) * 0.15 || 80;
   const maxDim = Math.max(result.bbW, result.bbH);
   const dynamicFontSize = Math.max(16, maxDim * 0.03);
@@ -595,6 +750,7 @@ Use Chain-of-Thought reasoning to:
       const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = width;
@@ -619,9 +775,18 @@ Use Chain-of-Thought reasoning to:
         <rect x="100" y="100" width="4000" height="2770" fill="none" stroke="black" stroke-width="5"/>
         <rect x="120" y="120" width="3960" height="2730" fill="none" stroke="black" stroke-width="2"/>
         
-        <g transform="translate(1800, 600)">
-          <rect x="15" y="15" width="570" height="170" rx="85" ry="85" fill="none" stroke="#007BFF" stroke-width="30"/>
-          <text x="300" y="145" font-family="'Arial Black', Impact, sans-serif" font-size="130" font-weight="900" fill="#007BFF" text-anchor="middle" letter-spacing="5">L&amp;E</text>
+        <g transform="translate(1700, 500)">
+          <svg width="800" height="366" viewBox="0 0 612 280">
+            <g clip-path="url(#clip0_cover)">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z" fill="#007BFF"/>
+              <path d="M272.309 55.2098C251.128 60.6741 238.96 78.5583 243.062 98.197C244.526 105.208 251.478 118.167 256.28 122.834C258.073 124.578 258.407 126.372 257.321 128.432C256.962 129.112 254.051 132.577 250.852 136.132C242.14 145.812 238.323 152.1 235.202 161.912C233.132 168.421 232.624 179.307 234.055 186.485C236.031 196.394 240.794 205.011 248.217 212.106C254.995 218.585 263.262 223.007 272.309 224.995C278.086 226.264 289.33 226.29 294.815 225.047C304.554 222.84 314.699 217.751 321.462 211.678C323.296 210.031 325.257 208.707 325.819 208.707C326.381 208.707 328.301 210.031 330.135 211.678C336.898 217.751 347.043 222.84 356.782 225.047C362.267 226.29 373.511 226.264 379.288 224.995C388.335 223.007 396.602 218.585 403.38 212.106C410.803 205.011 415.566 196.394 417.542 186.485C418.973 179.307 418.465 168.421 416.395 161.912C413.274 152.1 409.457 145.812 400.745 136.132C397.546 132.577 394.635 129.112 394.276 128.432C393.19 126.372 393.524 124.578 395.317 122.834C400.119 118.167 407.071 105.208 408.535 98.197C412.637 78.5583 400.469 60.6741 379.288 55.2098C362.626 50.9095 344.156 58.1893 336.008 73.2256L333.699 77.4963L325.819 77.4963L317.939 77.4963L315.63 73.2256C307.482 58.1893 288.972 50.9095 272.309 55.2098Z" fill="#007BFF"/>
+            </g>
+            <defs>
+              <clipPath id="clip0_cover">
+                <rect width="612" height="280" fill="white"/>
+              </clipPath>
+            </defs>
+          </svg>
         </g>
 
         <g transform="translate(1200, 1200)" font-family="sans-serif" font-size="40">
@@ -691,97 +856,106 @@ Use Chain-of-Thought reasoning to:
         <g transform="translate(3500, 120)">
           <text x="290" y="60" font-family="sans-serif" font-size="45" font-weight="bold" text-anchor="middle">STRETCH CEILING</text>
           
-          <g transform="translate(140, 90)">
-            <rect x="7.5" y="7.5" width="285" height="85" rx="42.5" ry="42.5" fill="none" stroke="#007BFF" stroke-width="15"/>
-            <text x="150" y="72.5" font-family="'Arial Black', Impact, sans-serif" font-size="65" font-weight="900" fill="#007BFF" text-anchor="middle" letter-spacing="2.5">L&amp;E</text>
+          <g transform="translate(90, 80)">
+            <svg width="400" height="183" viewBox="0 0 612 280">
+              <g clip-path="url(#clip0_page)">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M84.8243 0.314266C67.5537 1.61245 50.2804 8.46213 36.1963 19.5976C19.4587 32.831 6.85699 53.2186 2.20669 74.5867C-0.0110881 84.7771 -0.139264 88.9375 0.0721129 143.945L0.27562 196.991L1.78056 203.899C7.73679 231.234 23.02 253.224 45.7245 267.127C54.2044 272.32 64.3291 276.228 74.9846 278.422L81.1702 279.696H306.04H530.909L536.812 278.378C555.506 274.205 570.155 266.159 583.192 252.903C591.308 244.65 596.273 237.707 601.145 227.791C606.899 216.082 609.871 205.437 611.044 192.335C611.44 187.911 611.579 168.279 611.447 135.39C611.249 86.0919 611.223 85.0794 609.982 78.637C604.073 47.9917 585.878 23.1266 559.58 9.75974C549.231 4.49971 539.376 1.65979 527.506 0.517892C521.902 -0.0216864 91.92 -0.219039 84.8243 0.314266ZM85.3865 25.4138C66.3541 27.5139 49.2055 37.7631 37.8479 53.8255C34.2899 58.8574 29.2838 69.0375 27.7502 74.3592C24.9134 84.2022 25.0523 81.2163 24.8235 137.386C24.5863 195.581 24.5913 195.679 28.1026 206.582C36.3717 232.255 58.0092 250.978 83.2609 254.31C86.5372 254.743 153.367 254.874 308.85 254.755L529.785 254.584L535.285 253.022C541.53 251.249 546.373 249.297 550.866 246.745C565.909 238.198 577.936 223.245 583.113 206.652C586.681 195.215 586.564 197.456 586.564 140.523C586.564 101.964 586.386 87.5806 585.872 84.5821C582.497 64.9183 571.292 46.8321 556.226 36.7318C548.628 31.6383 542.269 28.7979 533.439 26.5534L528.66 25.3391L308.007 25.2678C186.648 25.229 86.4686 25.2946 85.3865 25.4138Z" fill="#007BFF"/>
+                <path d="M272.309 55.2098C251.128 60.6741 238.96 78.5583 243.062 98.197C244.526 105.208 251.478 118.167 256.28 122.834C258.073 124.578 258.407 126.372 257.321 128.432C256.962 129.112 254.051 132.577 250.852 136.132C242.14 145.812 238.323 152.1 235.202 161.912C233.132 168.421 232.624 179.307 234.055 186.485C236.031 196.394 240.794 205.011 248.217 212.106C254.995 218.585 263.262 223.007 272.309 224.995C278.086 226.264 289.33 226.29 294.815 225.047C304.554 222.84 314.699 217.751 321.462 211.678C323.296 210.031 325.257 208.707 325.819 208.707C326.381 208.707 328.301 210.031 330.135 211.678C336.898 217.751 347.043 222.84 356.782 225.047C362.267 226.29 373.511 226.264 379.288 224.995C388.335 223.007 396.602 218.585 403.38 212.106C410.803 205.011 415.566 196.394 417.542 186.485C418.973 179.307 418.465 168.421 416.395 161.912C413.274 152.1 409.457 145.812 400.745 136.132C397.546 132.577 394.635 129.112 394.276 128.432C393.19 126.372 393.524 124.578 395.317 122.834C400.119 118.167 407.071 105.208 408.535 98.197C412.637 78.5583 400.469 60.6741 379.288 55.2098C362.626 50.9095 344.156 58.1893 336.008 73.2256L333.699 77.4963L325.819 77.4963L317.939 77.4963L315.63 73.2256C307.482 58.1893 288.972 50.9095 272.309 55.2098Z" fill="#007BFF"/>
+              </g>
+              <defs>
+                <clipPath id="clip0_page">
+                  <rect width="612" height="280" fill="white"/>
+                </clipPath>
+              </defs>
+            </svg>
           </g>
           
-          <text x="290" y="240" font-family="sans-serif" font-size="20" text-anchor="middle">539/2, 16-17 F. Gypsum Metropolitan Tower</text>
-          <text x="290" y="270" font-family="sans-serif" font-size="20" text-anchor="middle">Rajthevee, Bangkok, Thailand, 10400</text>
+          <text x="290" y="290" font-family="sans-serif" font-size="20" text-anchor="middle">539/2, 16-17 F. Gypsum Metropolitan Tower</text>
+          <text x="290" y="320" font-family="sans-serif" font-size="20" text-anchor="middle">Rajthevee, Bangkok, Thailand, 10400</text>
           
-          <line x1="0" y1="300" x2="580" y2="300" stroke="black" stroke-width="2"/>
-          <text x="20" y="330" font-family="sans-serif" font-size="20" font-weight="bold">Project Name</text>
-          <text x="290" y="390" font-family="sans-serif" font-size="30" text-anchor="middle">${details.projectName}</text>
+          <line x1="0" y1="350" x2="580" y2="350" stroke="black" stroke-width="2"/>
+          <text x="20" y="380" font-family="sans-serif" font-size="20" font-weight="bold">Project Name</text>
+          <text x="290" y="440" font-family="sans-serif" font-size="30" text-anchor="middle">${details.projectName}</text>
           
-          <line x1="0" y1="450" x2="580" y2="450" stroke="black" stroke-width="2"/>
-          <text x="20" y="480" font-family="sans-serif" font-size="20" font-weight="bold">Project Number :</text>
-          <text x="200" y="480" font-family="sans-serif" font-size="25">${details.projectNumber}</text>
+          <line x1="0" y1="500" x2="580" y2="500" stroke="black" stroke-width="2"/>
+          <text x="20" y="530" font-family="sans-serif" font-size="20" font-weight="bold">Project Number :</text>
+          <text x="200" y="530" font-family="sans-serif" font-size="25">${details.projectNumber}</text>
           
-          <line x1="0" y1="510" x2="580" y2="510" stroke="black" stroke-width="2"/>
-          <text x="20" y="540" font-family="sans-serif" font-size="20" font-weight="bold">Client.</text>
-          <text x="290" y="600" font-family="sans-serif" font-size="30" text-anchor="middle">${details.client}</text>
+          <line x1="0" y1="560" x2="580" y2="560" stroke="black" stroke-width="2"/>
+          <text x="20" y="590" font-family="sans-serif" font-size="20" font-weight="bold">Client.</text>
+          <text x="290" y="650" font-family="sans-serif" font-size="30" text-anchor="middle">${details.client}</text>
           
-          <line x1="0" y1="660" x2="580" y2="660" stroke="black" stroke-width="2"/>
-          <text x="20" y="690" font-family="sans-serif" font-size="20" font-weight="bold">Location :</text>
-          <text x="150" y="690" font-family="sans-serif" font-size="25">${details.location}</text>
+          <line x1="0" y1="710" x2="580" y2="710" stroke="black" stroke-width="2"/>
+          <text x="20" y="740" font-family="sans-serif" font-size="20" font-weight="bold">Location :</text>
+          <text x="150" y="740" font-family="sans-serif" font-size="25">${details.location}</text>
           
-          <line x1="0" y1="720" x2="580" y2="720" stroke="black" stroke-width="2"/>
-          <text x="20" y="750" font-family="sans-serif" font-size="20" font-weight="bold">Note :</text>
+          <line x1="0" y1="770" x2="580" y2="770" stroke="black" stroke-width="2"/>
+          <text x="20" y="800" font-family="sans-serif" font-size="20" font-weight="bold">Note :</text>
           
-          <line x1="0" y1="850" x2="580" y2="850" stroke="black" stroke-width="2"/>
-          <text x="20" y="880" font-family="sans-serif" font-size="20" font-weight="bold">Drawing Title.</text>
-          <text x="290" y="960" font-family="sans-serif" font-size="35" text-anchor="middle">${details.drawingTitle}</text>
-          
-          <line x1="0" y1="1050" x2="580" y2="1050" stroke="black" stroke-width="2"/>
-          <text x="290" y="1080" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Revisions</text>
+          <line x1="0" y1="900" x2="580" y2="900" stroke="black" stroke-width="2"/>
+          <text x="20" y="930" font-family="sans-serif" font-size="20" font-weight="bold">Drawing Title.</text>
+          <text x="290" y="1010" font-family="sans-serif" font-size="35" text-anchor="middle">${details.drawingTitle}</text>
           
           <line x1="0" y1="1100" x2="580" y2="1100" stroke="black" stroke-width="2"/>
-          <line x1="80" y1="1100" x2="80" y2="1400" stroke="black" stroke-width="2"/>
-          <line x1="450" y1="1100" x2="450" y2="1400" stroke="black" stroke-width="2"/>
-          
-          <text x="40" y="1130" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Rev.</text>
-          <text x="265" y="1130" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Issue / Revision</text>
-          <text x="515" y="1130" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Date.</text>
+          <text x="290" y="1130" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Revisions</text>
           
           <line x1="0" y1="1150" x2="580" y2="1150" stroke="black" stroke-width="2"/>
+          <line x1="80" y1="1150" x2="80" y2="1450" stroke="black" stroke-width="2"/>
+          <line x1="450" y1="1150" x2="450" y2="1450" stroke="black" stroke-width="2"/>
+          
+          <text x="40" y="1180" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Rev.</text>
+          <text x="265" y="1180" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Issue / Revision</text>
+          <text x="515" y="1180" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle">Date.</text>
+          
           <line x1="0" y1="1200" x2="580" y2="1200" stroke="black" stroke-width="2"/>
           <line x1="0" y1="1250" x2="580" y2="1250" stroke="black" stroke-width="2"/>
           <line x1="0" y1="1300" x2="580" y2="1300" stroke="black" stroke-width="2"/>
           <line x1="0" y1="1350" x2="580" y2="1350" stroke="black" stroke-width="2"/>
           <line x1="0" y1="1400" x2="580" y2="1400" stroke="black" stroke-width="2"/>
+          <line x1="0" y1="1450" x2="580" y2="1450" stroke="black" stroke-width="2"/>
           
-          <line x1="150" y1="1400" x2="150" y2="2730" stroke="black" stroke-width="2"/>
+          <line x1="150" y1="1450" x2="150" y2="2730" stroke="black" stroke-width="2"/>
           
-          <text x="20" y="1440" font-family="sans-serif" font-size="20" font-weight="bold">Status :</text>
-          <text x="170" y="1440" font-family="sans-serif" font-size="25">${details.status}</text>
+          <text x="20" y="1490" font-family="sans-serif" font-size="20" font-weight="bold">Status :</text>
+          <text x="170" y="1490" font-family="sans-serif" font-size="25">${details.status}</text>
           
-          <line x1="0" y1="1480" x2="580" y2="1480" stroke="black" stroke-width="2"/>
-          <text x="20" y="1520" font-family="sans-serif" font-size="20" font-weight="bold">Design by :</text>
-          <text x="170" y="1520" font-family="sans-serif" font-size="25">${details.designBy}</text>
+          <line x1="0" y1="1530" x2="580" y2="1530" stroke="black" stroke-width="2"/>
+          <text x="20" y="1570" font-family="sans-serif" font-size="20" font-weight="bold">Design by :</text>
+          <text x="170" y="1570" font-family="sans-serif" font-size="25">${details.designBy}</text>
           
-          <line x1="0" y1="1560" x2="580" y2="1560" stroke="black" stroke-width="2"/>
-          <text x="20" y="1600" font-family="sans-serif" font-size="20" font-weight="bold">Checked by :</text>
-          <text x="170" y="1600" font-family="sans-serif" font-size="25">${details.checkedBy}</text>
+          <line x1="0" y1="1610" x2="580" y2="1610" stroke="black" stroke-width="2"/>
+          <text x="20" y="1650" font-family="sans-serif" font-size="20" font-weight="bold">Checked by :</text>
+          <text x="170" y="1650" font-family="sans-serif" font-size="25">${details.checkedBy}</text>
           
-          <line x1="0" y1="1640" x2="580" y2="1640" stroke="black" stroke-width="2"/>
-          <text x="20" y="1680" font-family="sans-serif" font-size="20" font-weight="bold">Approved</text>
-          <text x="20" y="1710" font-family="sans-serif" font-size="20" font-weight="bold">by Client :</text>
+          <line x1="0" y1="1690" x2="580" y2="1690" stroke="black" stroke-width="2"/>
+          <text x="20" y="1730" font-family="sans-serif" font-size="20" font-weight="bold">Approved</text>
+          <text x="20" y="1760" font-family="sans-serif" font-size="20" font-weight="bold">by Client :</text>
           
-          <line x1="0" y1="1750" x2="580" y2="1750" stroke="black" stroke-width="2"/>
-          <text x="20" y="1790" font-family="sans-serif" font-size="20" font-weight="bold">Signature and</text>
-          <text x="20" y="1820" font-family="sans-serif" font-size="20" font-weight="bold">Company Stamp :</text>
+          <line x1="0" y1="1800" x2="580" y2="1800" stroke="black" stroke-width="2"/>
+          <text x="20" y="1840" font-family="sans-serif" font-size="20" font-weight="bold">Signature and</text>
+          <text x="20" y="1870" font-family="sans-serif" font-size="20" font-weight="bold">Company Stamp :</text>
           
-          <line x1="0" y1="1950" x2="580" y2="1950" stroke="black" stroke-width="2"/>
-          <text x="20" y="1990" font-family="sans-serif" font-size="20" font-weight="bold">Page Size :</text>
-          <text x="170" y="1990" font-family="sans-serif" font-size="25">A3</text>
+          <line x1="0" y1="2000" x2="580" y2="2000" stroke="black" stroke-width="2"/>
+          <text x="20" y="2040" font-family="sans-serif" font-size="20" font-weight="bold">Page Size :</text>
+          <text x="170" y="2040" font-family="sans-serif" font-size="25">A3</text>
           
-          <line x1="0" y1="2030" x2="580" y2="2030" stroke="black" stroke-width="2"/>
-          <text x="20" y="2070" font-family="sans-serif" font-size="20" font-weight="bold">Scale :</text>
-          <text x="170" y="2070" font-family="sans-serif" font-size="25">NTS</text>
+          <line x1="0" y1="2080" x2="580" y2="2080" stroke="black" stroke-width="2"/>
+          <text x="20" y="2120" font-family="sans-serif" font-size="20" font-weight="bold">Scale :</text>
+          <text x="170" y="2120" font-family="sans-serif" font-size="25">NTS</text>
           
-          <line x1="0" y1="2110" x2="580" y2="2110" stroke="black" stroke-width="2"/>
-          <text x="20" y="2150" font-family="sans-serif" font-size="20" font-weight="bold">Unit :</text>
-          <text x="170" y="2150" font-family="sans-serif" font-size="25">mm.</text>
+          <line x1="0" y1="2160" x2="580" y2="2160" stroke="black" stroke-width="2"/>
+          <text x="20" y="2200" font-family="sans-serif" font-size="20" font-weight="bold">Unit :</text>
+          <text x="170" y="2200" font-family="sans-serif" font-size="25">mm.</text>
           
-          <line x1="0" y1="2190" x2="580" y2="2190" stroke="black" stroke-width="2"/>
-          <text x="20" y="2230" font-family="sans-serif" font-size="20" font-weight="bold">Date :</text>
-          <text x="170" y="2230" font-family="sans-serif" font-size="25">${details.date}</text>
+          <line x1="0" y1="2240" x2="580" y2="2240" stroke="black" stroke-width="2"/>
+          <text x="20" y="2280" font-family="sans-serif" font-size="20" font-weight="bold">Date :</text>
+          <text x="170" y="2280" font-family="sans-serif" font-size="25">${details.date}</text>
           
-          <line x1="0" y1="2270" x2="580" y2="2270" stroke="black" stroke-width="2"/>
-          <text x="20" y="2310" font-family="sans-serif" font-size="20" font-weight="bold">Sheet No :</text>
-          <text x="170" y="2310" font-family="sans-serif" font-size="25">${pageNum}/${totalPages}</text>
+          <line x1="0" y1="2320" x2="580" y2="2320" stroke="black" stroke-width="2"/>
+          <text x="20" y="2360" font-family="sans-serif" font-size="20" font-weight="bold">Sheet No :</text>
+          <text x="170" y="2360" font-family="sans-serif" font-size="25">${pageNum}/${totalPages}</text>
           
-          <line x1="0" y1="2350" x2="580" y2="2350" stroke="black" stroke-width="2"/>
+          <line x1="0" y1="2400" x2="580" y2="2400" stroke="black" stroke-width="2"/>
         </g>
 
         <svg x="120" y="420" width="3380" height="2430" viewBox="${page.viewBox}">
@@ -851,6 +1025,7 @@ Use Chain-of-Thought reasoning to:
     const url = URL.createObjectURL(blob);
 
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const scale = 2;
@@ -944,12 +1119,145 @@ Use Chain-of-Thought reasoning to:
                 <Octagon size={20} className="mb-1" />
                 <span className="text-[10px] font-medium">Octagon</span>
               </button>
+              <button onClick={() => { setShape('polygon'); setIsDrawingPolygon(true); }} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-colors ${shape === 'polygon' ? 'border-green-500 bg-green-50 text-green-700' : 'border-neutral-200 hover:bg-neutral-50'}`}>
+                <Pencil size={20} className="mb-1" />
+                <span className="text-[10px] font-medium">Draw</span>
+              </button>
+              <button onClick={() => setShape('text')} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-colors ${shape === 'text' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-neutral-200 hover:bg-neutral-50'}`}>
+                <Type size={20} className="mb-1" />
+                <span className="text-[10px] font-medium">Text</span>
+              </button>
               <button onClick={() => setShape('custom')} className={`col-span-2 flex flex-col items-center justify-center p-3 rounded-lg border transition-colors ${shape === 'custom' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-neutral-200 hover:bg-neutral-50'}`}>
                 <Sparkles size={20} className="mb-1" />
                 <span className="text-[10px] font-medium">AI Custom</span>
               </button>
             </div>
           </div>
+
+          {/* Polygon Drawing Panel */}
+          {shape === 'polygon' && (
+            <div className="space-y-3 p-3 bg-green-50 rounded-lg border border-green-100">
+              <label className="text-xs font-semibold uppercase tracking-wider text-green-700">Custom Polygon Builder</label>
+              
+              <div className="relative w-full h-48 bg-white rounded-lg border-2 border-dashed border-green-300 overflow-hidden">
+                <svg 
+                  ref={polygonCanvasRef}
+                  width="100%" 
+                  height="100%" 
+                  viewBox="0 0 300 200"
+                  className={`${isDrawingPolygon ? 'cursor-crosshair' : 'cursor-default'}`}
+                  onClick={handlePolygonCanvasClick}
+                >
+                  {/* Grid background */}
+                  <defs>
+                    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e7eb" strokeWidth="0.5"/>
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#grid)" />
+                  
+                  {/* Draw polygon preview */}
+                  {polygonPoints.length > 0 && (
+                    <>
+                      <path 
+                        d={polygonPoints.length >= 3 
+                          ? `M ${polygonPoints[0].x} ${polygonPoints[0].y} ` + 
+                            polygonPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z'
+                          : `M ${polygonPoints[0].x} ${polygonPoints[0].y} ` + 
+                            polygonPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
+                        }
+                        fill={polygonPoints.length >= 3 ? "rgba(34, 197, 94, 0.2)" : "none"}
+                        stroke="#22c55e"
+                        strokeWidth="2"
+                      />
+                      {polygonPoints.map((p, i) => (
+                        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#22c55e" stroke="white" strokeWidth="2" />
+                      ))}
+                    </>
+                  )}
+                  
+                  {isDrawingPolygon && (
+                    <text x="150" y="15" textAnchor="middle" fontSize="10" fill="#6b7280">
+                      Click to add points, then click "Done"
+                    </text>
+                  )}
+                </svg>
+              </div>
+              
+              <div className="flex gap-2">
+                {isDrawingPolygon ? (
+                  <button 
+                    onClick={handlePolygonComplete}
+                    disabled={polygonPoints.length < 3}
+                    className="flex-1 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    Done ({polygonPoints.length} points)
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => setIsDrawingPolygon(true)}
+                    className="flex-1 py-2 bg-green-100 text-green-700 text-sm font-medium rounded hover:bg-green-200 flex items-center justify-center gap-2"
+                  >
+                    <Pencil size={16} /> Continue Drawing
+                  </button>
+                )}
+                <button 
+                  onClick={handlePolygonReset}
+                  className="px-3 py-2 bg-neutral-100 text-neutral-700 text-sm font-medium rounded hover:bg-neutral-200 flex items-center justify-center gap-2"
+                >
+                  <RotateCcw size={16} />
+                </button>
+              </div>
+
+              {polygonPoints.length >= 3 && (
+                <div className="mt-2">
+                  <Input label="Scale (mm per pixel)" value={polygonScale} onChange={setPolygonScale} />
+                  <p className="text-xs text-green-600 mt-1">
+                    Size: {Math.round(polygonBounds.width)}mm x {Math.round(polygonBounds.height)}mm
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Text Shape Panel */}
+          {shape === 'text' && (
+            <div className="space-y-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+              <label className="text-xs font-semibold uppercase tracking-wider text-amber-700">Text Shape Builder</label>
+              
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Enter Text</label>
+                <input 
+                  type="text" 
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  placeholder="A-Z, 0-9..."
+                  className="w-full px-2 py-1.5 text-lg border border-amber-300 rounded focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all font-mono bg-white"
+                />
+              </div>
+              
+              <Input label="Font Size (mm)" value={textFontSize} onChange={setTextFontSize} />
+              
+              {isLoadingText && (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 size={20} className="animate-spin text-amber-600" />
+                  <span className="ml-2 text-sm text-amber-600">Generating text path...</span>
+                </div>
+              )}
+              
+              {textPath && !isLoadingText && (
+                <div className="relative w-full h-24 bg-white rounded-lg border border-amber-200 overflow-hidden flex items-center justify-center">
+                  <svg viewBox={`0 0 ${textBounds.width} ${textBounds.height}`} className="max-h-full max-w-full p-2">
+                    <path d={textPath} fill="#f59e0b" />
+                  </svg>
+                </div>
+              )}
+              
+              <p className="text-xs text-amber-600">
+                {textBounds.width > 0 && `Size: ${Math.round(textBounds.width)}mm x ${Math.round(textBounds.height)}mm`}
+              </p>
+            </div>
+          )}
 
           {shape === 'custom' && (
             <div className="space-y-3 p-3 bg-purple-50 rounded-lg border border-purple-100">
@@ -1124,6 +1432,12 @@ Use Chain-of-Thought reasoning to:
                 <Input label="Height" value={octH} onChange={setOctH} />
               </div>
             )}
+            {shape === 'polygon' && polygonPoints.length < 3 && (
+              <p className="text-xs text-neutral-500 italic">Draw at least 3 points to create a polygon</p>
+            )}
+            {shape === 'text' && !textPath && (
+              <p className="text-xs text-neutral-500 italic">Enter text above to generate shape</p>
+            )}
             {result.error && <p className="text-xs text-red-500 mt-1">{result.error}</p>}
           </div>
 
@@ -1204,7 +1518,7 @@ Use Chain-of-Thought reasoning to:
                 <line x1={result.bbW} y1={-offset - tickSize} x2={result.bbW} y2={-tickSize} stroke="#525252" strokeWidth={dynamicStrokeWidth} />
                 <path d={`M ${arrowSize} ${-offset - arrowSize/2} L 0 ${-offset} L ${arrowSize} ${-offset + arrowSize/2}`} fill="none" stroke="#525252" strokeWidth={dynamicStrokeWidth} />
                 <path d={`M ${result.bbW - arrowSize} ${-offset - arrowSize/2} L ${result.bbW} ${-offset} L ${result.bbW - arrowSize} ${-offset + arrowSize/2}`} fill="none" stroke="#525252" strokeWidth={dynamicStrokeWidth} />
-                <text x={result.bbW/2} y={-offset - dynamicFontSize * 0.5} textAnchor="middle" fill="#525252">{result.bbW}</text>
+                <text x={result.bbW/2} y={-offset - dynamicFontSize * 0.5} textAnchor="middle" fill="#525252">{result.bbW.toFixed(0)}</text>
                 
                 {/* Left Dimension */}
                 <line x1={-offset} y1="0" x2={-offset} y2={result.bbH} stroke="#525252" strokeWidth={dynamicStrokeWidth} />
@@ -1212,7 +1526,7 @@ Use Chain-of-Thought reasoning to:
                 <line x1={-offset - tickSize} y1={result.bbH} x2={-tickSize} y2={result.bbH} stroke="#525252" strokeWidth={dynamicStrokeWidth} />
                 <path d={`M ${-offset - arrowSize/2} ${arrowSize} L ${-offset} 0 L ${-offset + arrowSize/2} ${arrowSize}`} fill="none" stroke="#525252" strokeWidth={dynamicStrokeWidth} />
                 <path d={`M ${-offset - arrowSize/2} ${result.bbH - arrowSize} L ${-offset} ${result.bbH} L ${-offset + arrowSize/2} ${result.bbH - arrowSize}`} fill="none" stroke="#525252" strokeWidth={dynamicStrokeWidth} />
-                <text x={-offset - dynamicFontSize * 0.5} y={result.bbH/2} textAnchor="middle" fill="#525252" transform={`rotate(-90, ${-offset - dynamicFontSize * 0.5}, ${result.bbH/2})`}>{result.bbH}</text>
+                <text x={-offset - dynamicFontSize * 0.5} y={result.bbH/2} textAnchor="middle" fill="#525252" transform={`rotate(-90, ${-offset - dynamicFontSize * 0.5}, ${result.bbH/2})`}>{result.bbH.toFixed(0)}</text>
               </g>
 
               {shape === 'custom' && customPath ? (
@@ -1223,6 +1537,13 @@ Use Chain-of-Thought reasoning to:
                   stroke="#525252" 
                   strokeWidth={dynamicStrokeWidth * 2} 
                   vectorEffect="non-scaling-stroke"
+                />
+              ) : shape === 'text' && textPath ? (
+                <path 
+                  d={result.shapePath} 
+                  fill="white" 
+                  stroke="#525252" 
+                  strokeWidth={dynamicStrokeWidth * 2} 
                 />
               ) : (
                 <path d={result.shapePath} fill="white" stroke="#525252" strokeWidth={dynamicStrokeWidth * 2} />
