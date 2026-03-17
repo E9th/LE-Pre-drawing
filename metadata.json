@@ -1,0 +1,5 @@
+{
+  "name": "Module Array Planner",
+  "description": "Automate the distribution and alignment of modules within a specified shape (rectangle, circle, or triangle).",
+  "requestFramePermissions": []
+}
