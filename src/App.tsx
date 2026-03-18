@@ -1088,19 +1088,28 @@ Use Chain-of-Thought reasoning to:
     }
     setIsSendingBOQ(true);
     try {
+      const exportWidthPx = 1400;
+      const exportHeightPx = 990;
+
       // สร้าง PDF
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
       const coverSvgString = generateCoverPageSVG(docDetails);
-      const coverImgData = await svgToPng(coverSvgString, 4200, 2970);
+      const coverImgData = await svgToPng(coverSvgString, exportWidthPx, exportHeightPx);
       pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
       
       for (let i = 0; i < pages.length; i++) {
         pdf.addPage('a3', 'landscape');
         const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
-        const pageImgData = await svgToPng(pageSvgString, 4200, 2970);
+        const pageImgData = await svgToPng(pageSvgString, exportWidthPx, exportHeightPx);
         pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
       }
-      const pdfBase64 = pdf.output('datauristring');
+      const pdfDataUri = pdf.output('datauristring');
+      const pdfBase64 = pdfDataUri.includes(',') ? pdfDataUri.split(',')[1] : pdfDataUri;
+      const approxPdfSizeMB = (pdfBase64.length * 0.75) / (1024 * 1024);
+
+      if (approxPdfSizeMB > 8) {
+        alert(`⚠️ ไฟล์ PDF มีขนาดประมาณ ${approxPdfSizeMB.toFixed(1)} MB ซึ่งอาจเกินข้อจำกัดของ Google Apps Script และส่งไม่สำเร็จ (413)`);
+      }
 
       // เตรียมข้อมูลยิง API
       const payload = {
@@ -1108,52 +1117,65 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure: structure,
-        lamps: pages.map(p => ({
+        lamps: pages.map((p, index) => ({
           shapeName: p.name,
           w: (p.bbW / 1000).toFixed(2),
           l: (p.bbH / 1000).toFixed(2),
           q: p.q, h: p.h, d: p.d, f: p.f, t: p.t,
           exactArea: p.exactAreaSqm,
-          file: { mimeType: "application/pdf", data: pdfBase64, name: "Drawing.pdf" }
+          // แนบไฟล์เฉพาะรายการแรก เพื่อลด payload ซ้ำซ้อนจนเกิด 413
+          file: index === 0 ? { mimeType: "application/pdf", data: pdfBase64, name: "Drawing.pdf" } : null
         }))
       };
 
-      // ยิงข้อมูลไปหา Google Apps Script (ไม่ใส่ custom header เพื่อเลี่ยง preflight)
-      const response = await fetch("https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec", {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
+      const apiUrl = "https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec";
 
-      // รองรับทั้ง JSON และ non-JSON response เพื่อ debug ปลายทางได้ง่ายขึ้น
-      const rawResponse = await response.text();
-      let apiResult: { status?: string; message?: string } = {};
+      try {
+        // ยิงแบบปกติก่อน (อ่านผลตอบกลับได้)
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
 
-      if (rawResponse) {
-        try {
-          apiResult = JSON.parse(rawResponse);
-        } catch {
-          apiResult = {
-            status: "Error",
-            message: `Non-JSON response: ${rawResponse.slice(0, 240)}`,
-          };
+        const rawResponse = await response.text();
+        let apiResult: { status?: string; message?: string } = {};
+
+        if (rawResponse) {
+          try {
+            apiResult = JSON.parse(rawResponse);
+          } catch {
+            apiResult = {
+              status: "Error",
+              message: `Non-JSON response: ${rawResponse.slice(0, 240)}`,
+            };
+          }
         }
-      }
 
-      if (!response.ok) {
-        const httpDebug = `HTTP ${response.status} ${response.statusText || ""}`.trim();
-        throw new Error(apiResult.message || httpDebug);
-      }
+        if (!response.ok) {
+          const httpDebug = `HTTP ${response.status} ${response.statusText || ""}`.trim();
+          throw new Error(apiResult.message || httpDebug);
+        }
 
-      if(apiResult.status === "Success") {
-        alert("✅ ประเมินราคาสำเร็จ! ระบบส่งข้อมูลและ PDF เข้า LINE เรียบร้อย");
+        if (apiResult.status === "Success") {
+          alert("✅ ประเมินราคาสำเร็จ! ระบบส่งข้อมูลและ PDF เข้า LINE เรียบร้อย");
+          setShowTemplateSettings(false);
+        } else {
+          alert("❌ เกิดข้อผิดพลาด: " + (apiResult.message || "Unknown server response"));
+        }
+      } catch (normalFetchError) {
+        // หากโดน CORS ฝั่ง browser ให้ลองส่งแบบ no-cors เพื่อให้ request ไปถึงปลายทาง
+        await fetch(apiUrl, {
+          method: "POST",
+          mode: "no-cors",
+          body: JSON.stringify(payload)
+        });
+        alert("✅ ระบบส่งคำขอแล้ว (โหมด no-cors) แต่เบราว์เซอร์อ่านผลตอบกลับไม่ได้\nโปรดตรวจผลที่ Google Sheet/LINE เพื่อยืนยัน");
         setShowTemplateSettings(false);
-      } else {
-        alert("❌ เกิดข้อผิดพลาด: " + (apiResult.message || "Unknown server response"));
       }
     } catch (error) {
       console.error(error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isNetworkOrCors = /Failed to fetch|NetworkError|Load failed|CORS/i.test(errorMessage);
+      const isNetworkOrCors = /Failed to fetch|NetworkError|Load failed|CORS|413|Content Too Large/i.test(errorMessage);
       if (isNetworkOrCors) {
         alert("❌ เชื่อมต่อ API ไม่สำเร็จ (อาจติด CORS/สิทธิ์ Web App)\nรายละเอียด: " + errorMessage);
       } else {
