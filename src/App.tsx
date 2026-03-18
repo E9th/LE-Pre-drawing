@@ -24,6 +24,7 @@ interface FormLampItem {
   w: number;
   l: number;
   innerDia: number;
+  modulesPerLamp: number;
   q: number;
   h: string;
   d: string;
@@ -283,6 +284,7 @@ export default function App() {
   const [structure, setStructure] = useState('ทำ');
   const [aoName, setAoName] = useState('L&E Team');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
+  const [isDataConfirmed, setIsDataConfirmed] = useState(false);
   const [appView, setAppView] = useState<AppView>('form');
   const [isSubmittingChecklist, setIsSubmittingChecklist] = useState(false);
   const [formLamps, setFormLamps] = useState<FormLampItem[]>([
@@ -293,6 +295,7 @@ export default function App() {
       w: 0,
       l: 0,
       innerDia: 500,
+      modulesPerLamp: 1,
       q: 1,
       h: '3',
       d: '10 เซนติเมตร',
@@ -336,6 +339,20 @@ export default function App() {
       setPlannerLampId(formLamps[0].id);
     }
   }, [formLamps, plannerLampId]);
+
+  React.useEffect(() => {
+    setIsDataConfirmed(false);
+  }, [
+    aoName,
+    structure,
+    docDetails.projectName,
+    docDetails.location,
+    docDetails.projectNumber,
+    docDetails.client,
+    docDetails.drawingTitle,
+    JSON.stringify(formLamps),
+    JSON.stringify(pages),
+  ]);
 
   React.useEffect(() => {
     const loadLogo = async () => {
@@ -854,6 +871,7 @@ Use Chain-of-Thought reasoning to:
   const vbX = -padding + (baseVbW - vbW) / 2;
   const vbY = -padding + (baseVbH - vbH) / 2;
   const viewBox = `${vbX} ${vbY} ${vbW} ${vbH}`;
+  const exportViewBox = `${-padding} ${-padding} ${baseVbW} ${baseVbH}`;
 
   // Calculate dynamic font size based on the bounding box size
   const dynamicStrokeWidth = Math.max(1, maxDim * 0.002);
@@ -1207,6 +1225,7 @@ Use Chain-of-Thought reasoning to:
         w: nextW,
         l: nextL,
         innerDia: shape === 'donut' ? donutInnerD : lamp.innerDia,
+        modulesPerLamp: Math.max(1, result.modules.length),
         q: lampQ,
         h: lampH,
         d: lampD,
@@ -1214,7 +1233,7 @@ Use Chain-of-Thought reasoning to:
         t: lampLight,
       };
     }));
-  }, [appView, plannerLampId, shape, objectName, donutInnerD, lampQ, lampH, lampD, lampF, lampLight, getPlannerDimensions]);
+  }, [appView, plannerLampId, shape, objectName, donutInnerD, lampQ, lampH, lampD, lampF, lampLight, getPlannerDimensions, result.modules.length]);
 
   const addToTemplate = () => {
     if (!svgRef.current) return;
@@ -1225,7 +1244,7 @@ Use Chain-of-Thought reasoning to:
     const nextPage: PageData = {
       id: pageId,
       svgContent: innerHTML,
-      viewBox: viewBox,
+      viewBox: exportViewBox,
       bbW: result.bbW,
       bbH: result.bbH,
       moduleCount: result.modules.length,
@@ -1293,7 +1312,7 @@ Use Chain-of-Thought reasoning to:
       viewBox,
       bbW: width,
       bbH: height,
-      moduleCount: 1,
+      moduleCount: Math.max(1, lamp.modulesPerLamp || 1),
       name: `${lamp.shapeName || `Lamp ${index + 1}`} (${lamp.objectShape})`,
       q: lamp.q,
       h: lamp.h,
@@ -1309,8 +1328,8 @@ Use Chain-of-Thought reasoning to:
     if (appView !== 'planner' || !plannerLampId) return null;
     const moduleRects = result.modules.map((mod) => `
       <g transform="translate(${mod.x}, ${mod.y})">
-        <rect width="${mod.w}" height="${mod.h}" fill="rgba(59,130,246,0.15)" stroke="#2563eb" stroke-width="1.5" />
-        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="2" fill="#2563eb" />
+        <rect width="${mod.w}" height="${mod.h}" fill="rgba(37,99,235,0.28)" stroke="#1d4ed8" stroke-width="2" />
+        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="2.4" fill="#1d4ed8" />
       </g>
     `).join('');
 
@@ -1321,7 +1340,7 @@ Use Chain-of-Thought reasoning to:
     return {
       id: plannerLampId,
       svgContent: `${pathMarkup}${moduleRects}`,
-      viewBox,
+      viewBox: exportViewBox,
       bbW: result.bbW,
       bbH: result.bbH,
       moduleCount: result.modules.length,
@@ -1333,7 +1352,7 @@ Use Chain-of-Thought reasoning to:
       t: lampLight,
       exactAreaSqm: calculateExactAreaSqm(),
     };
-  }, [appView, plannerLampId, result.modules, result.shapePath, result.bbW, result.bbH, shape, customPath, viewBox, objectName, lampQ, lampH, lampD, lampF, lampLight, calculateExactAreaSqm]);
+  }, [appView, plannerLampId, result.modules, result.shapePath, result.bbW, result.bbH, shape, customPath, exportViewBox, objectName, lampQ, lampH, lampD, lampF, lampLight, calculateExactAreaSqm]);
 
   const effectiveTemplatePages = useMemo(() => {
     const formIds = new Set(formTemplatePages.map(page => page.id));
@@ -1600,6 +1619,7 @@ Use Chain-of-Thought reasoning to:
       w: 0,
       l: 0,
       innerDia: 500,
+      modulesPerLamp: 1,
       q: 1,
       h: '3',
       d: '10 เซนติเมตร',
@@ -1744,6 +1764,7 @@ Use Chain-of-Thought reasoning to:
         }
 
         if (parsed.status === 'Success') {
+          setIsDataConfirmed(true);
           alert('✅ ส่งข้อมูลเรียบร้อย ระบบบันทึกและส่ง LINE สำเร็จ');
         } else {
           alert('❌ เกิดข้อผิดพลาด: ' + (parsed.message || 'Unknown server response'));
@@ -1754,6 +1775,7 @@ Use Chain-of-Thought reasoning to:
           mode: 'no-cors',
           body: JSON.stringify(payload),
         });
+        setIsDataConfirmed(true);
         alert('✅ ระบบส่งคำขอแล้ว (โหมด no-cors) กรุณาตรวจผลใน Google Sheet/LINE');
       }
     } catch (error) {
@@ -1883,6 +1905,7 @@ Use Chain-of-Thought reasoning to:
                                 w: prevLamp.w,
                                 l: prevLamp.l,
                                 innerDia: prevLamp.innerDia,
+                                modulesPerLamp: prevLamp.modulesPerLamp,
                                 q: prevLamp.q,
                                 h: prevLamp.h,
                                 d: prevLamp.d,
@@ -2023,14 +2046,14 @@ Use Chain-of-Thought reasoning to:
               </button>
               <button
                 onClick={generateTemplatePDF}
-                disabled={effectiveTemplatePages.length === 0 || isGeneratingPDF}
+                disabled={!isDataConfirmed || effectiveTemplatePages.length === 0 || isGeneratingPDF}
                 className="rounded border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
                 {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${effectiveTemplatePages.length})`}
               </button>
               <button
                 onClick={downloadPricingCSV}
-                disabled={effectiveTemplatePages.length === 0}
+                disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
                 className="rounded border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
               >
                 ดาวน์โหลดตารางคำนวณ (CSV)
@@ -2040,7 +2063,7 @@ Use Chain-of-Thought reasoning to:
                 disabled={isSubmittingChecklist}
                 className="rounded bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-60"
               >
-                {isSubmittingChecklist ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูล & อัปโหลดไฟล์'}
+                {isSubmittingChecklist ? 'กำลังยืนยันข้อมูล...' : 'ยืนยันข้อมูล'}
               </button>
             </div>
           </div>
@@ -2640,8 +2663,8 @@ Use Chain-of-Thought reasoning to:
             Template Settings {effectiveTemplatePages.length > 0 && <span className="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{effectiveTemplatePages.length}</span>}
           </button>
           <div className="w-px bg-neutral-200 mx-1 my-1"></div>
-          <button onClick={downloadSVG} className="p-2 hover:bg-neutral-100 rounded text-blue-600" title="Download SVG"><Download size={18} /></button>
-          <button onClick={downloadPDF} className="p-2 hover:bg-neutral-100 rounded text-red-600" title="Download PDF"><FileText size={18} /></button>
+          <button disabled={!isDataConfirmed} onClick={downloadSVG} className="p-2 hover:bg-neutral-100 rounded text-blue-600 disabled:opacity-50" title="Download SVG"><Download size={18} /></button>
+          <button disabled={!isDataConfirmed} onClick={downloadPDF} className="p-2 hover:bg-neutral-100 rounded text-red-600 disabled:opacity-50" title="Download PDF"><FileText size={18} /></button>
         </div>
         
         <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
@@ -2771,23 +2794,25 @@ Use Chain-of-Thought reasoning to:
             
             <div className="p-4 bg-neutral-50 border-t border-neutral-200">
               <div className="mb-4">
-                <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <h4 className="text-sm font-medium text-green-800 mb-3">BOQ Submission Data</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <TextInput label="AO / แผนก" value={aoName} onChange={setAoName} />
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-green-700 mb-1">ทำโครงสร้างส่วนกลางไหม?</label>
-                      <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-green-300 rounded bg-white">
-                        <option value="ทำ">ทำ</option>
-                        <option value="ไม่ทำ">ไม่ทำ</option>
-                      </select>
+                <details className="mb-3 rounded-lg border border-green-200 bg-green-50" open>
+                  <summary className="cursor-pointer list-none p-3 text-sm font-medium text-green-800">BOQ Submission Data</summary>
+                  <div className="px-3 pb-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <TextInput label="AO / แผนก" value={aoName} onChange={setAoName} />
+                      <div>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-green-700 mb-1">ทำโครงสร้างส่วนกลางไหม?</label>
+                        <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-green-300 rounded bg-white">
+                          <option value="ทำ">ทำ</option>
+                          <option value="ไม่ทำ">ไม่ทำ</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </details>
 
-                <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-                  <h4 className="text-sm font-medium text-emerald-800 mb-3">Pricing Breakdown</h4>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <details className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50">
+                  <summary className="cursor-pointer list-none p-3 text-sm font-medium text-emerald-800">Pricing Breakdown</summary>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 pb-3 text-sm">
                     <div className="text-neutral-600">Total Area (sqm)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.totalAreaSqm.toFixed(2)}</div>
 
@@ -2812,7 +2837,7 @@ Use Chain-of-Thought reasoning to:
                     <div className="text-emerald-800 font-semibold">Estimated Price = Subtotal / 0.7</div>
                     <div className="text-right text-emerald-800 font-bold">{pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
                   </div>
-                </div>
+                </details>
 
                 <h4 className="text-sm font-medium text-neutral-700 mb-2">Pages in Template ({effectiveTemplatePages.length})</h4>
                 {effectiveTemplatePages.length === 0 ? (
@@ -2846,14 +2871,14 @@ Use Chain-of-Thought reasoning to:
                 <button onClick={() => setShowTemplateSettings(false)} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 rounded">Cancel</button>
                 <button
                   onClick={downloadPricingCSV}
-                  disabled={effectiveTemplatePages.length === 0}
+                  disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
                   className="px-4 py-2 text-sm font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded disabled:opacity-50"
                 >
                   Download Calculation CSV
                 </button>
                 <button 
                   onClick={generateTemplatePDF} 
-                  disabled={effectiveTemplatePages.length === 0 || isGeneratingPDF}
+                  disabled={!isDataConfirmed || effectiveTemplatePages.length === 0 || isGeneratingPDF}
                   className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 rounded disabled:opacity-50 flex items-center gap-2"
                 >
                   {isGeneratingPDF ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
