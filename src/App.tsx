@@ -35,43 +35,43 @@ const TEMPLATE_EXPORT_WIDTH = 1050;
 const TEMPLATE_EXPORT_HEIGHT = 742;
 
 const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
-  { value: 'rectangle', label: 'Rectangle' },
-  { value: 'circle', label: 'Circle' },
-  { value: 'triangle', label: 'Triangle' },
-  { value: 'donut', label: 'Donut' },
-  { value: 'ellipse', label: 'Ellipse' },
-  { value: 'semicircle', label: 'Semicircle' },
-  { value: 'u-shape', label: 'U-Shape' },
-  { value: 'c-shape', label: 'C-Shape' },
-  { value: 't-shape', label: 'T-Shape' },
-  { value: 'hollow-rect', label: 'Hollow Rectangle' },
-  { value: 'hexagon', label: 'Hexagon' },
-  { value: 'octagon', label: 'Octagon' },
-  { value: 'polygon', label: 'Custom Polygon' },
-  { value: 'text', label: 'Text Shape' },
-  { value: 'custom', label: 'AI Custom' },
+  { value: 'rectangle', label: 'Rectangle (สี่เหลี่ยม)' },
+  { value: 'circle', label: 'Circle (วงกลม)' },
+  { value: 'triangle', label: 'Triangle (สามเหลี่ยม)' },
+  { value: 'donut', label: 'Donut (วงแหวน)' },
+  { value: 'ellipse', label: 'Ellipse (วงรี)' },
+  { value: 'semicircle', label: 'Semicircle (ครึ่งวงกลม)' },
+  { value: 'u-shape', label: 'U-Shape (ตัวยู)' },
+  { value: 'c-shape', label: 'C-Shape (ตัวซี)' },
+  { value: 't-shape', label: 'T-Shape (ตัวที)' },
+  { value: 'hollow-rect', label: 'Hollow Rectangle (กรอบสี่เหลี่ยม)' },
+  { value: 'hexagon', label: 'Hexagon (หกเหลี่ยม)' },
+  { value: 'octagon', label: 'Octagon (แปดเหลี่ยม)' },
+  { value: 'polygon', label: 'Custom Polygon (หลายเหลี่ยม)' },
+  { value: 'text', label: 'Text Shape (ตัวอักษร)' },
+  { value: 'custom', label: 'AI Custom (กำหนดเอง)' },
 ];
 
-const Input = ({ label, value, onChange, required = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean }) => (
+const Input = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
       type="number" 
       value={value} 
       onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono bg-white"
+      className={`w-full px-2 py-1.5 text-sm border rounded focus:ring-1 outline-none transition-all font-mono bg-white ${invalid ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-neutral-300 focus:border-blue-500 focus:ring-blue-500'}`}
     />
   </div>
 );
 
-const TextInput = ({ label, value, onChange, required = false }: { label: string, value: string, onChange: (v: string) => void, required?: boolean }) => (
+const TextInput = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: string, onChange: (v: string) => void, required?: boolean, invalid?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
       type="text" 
       value={value} 
       onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2 py-1.5 text-sm border border-neutral-300 rounded focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono bg-white"
+      className={`w-full px-2 py-1.5 text-sm border rounded focus:ring-1 outline-none transition-all font-mono bg-white ${invalid ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-neutral-300 focus:border-blue-500 focus:ring-blue-500'}`}
     />
   </div>
 );
@@ -296,6 +296,7 @@ export default function App() {
       file: null,
     },
   ]);
+  const [plannerLampId, setPlannerLampId] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const [savedShapes, setSavedShapes] = useState<SavedShape[]>(() => {
@@ -319,6 +320,16 @@ export default function App() {
       setModuleName(`${modW}x${modH}`);
     }
   }, [modW, modH]);
+
+  React.useEffect(() => {
+    if (formLamps.length === 0) {
+      setPlannerLampId(null);
+      return;
+    }
+    if (!plannerLampId || !formLamps.some(l => l.id === plannerLampId)) {
+      setPlannerLampId(formLamps[0].id);
+    }
+  }, [formLamps, plannerLampId]);
 
   // Generate text path when text input changes
   const generateTextPath = useCallback(async () => {
@@ -1066,13 +1077,124 @@ Use Chain-of-Thought reasoning to:
     return areaMm2 / 1000000; // แปลงตารางมิลลิเมตร เป็น ตารางเมตร
   };
 
+  const getPlannerDimensions = useCallback((shapeToUse: ShapeType): { w: number; l: number } => {
+    if (shapeToUse === 'rectangle' || shapeToUse === 'custom') return { w: rectW, l: rectH };
+    if (shapeToUse === 'circle') return { w: circleD, l: circleD };
+    if (shapeToUse === 'triangle') return { w: result.bbW || triC, l: result.bbH || triB };
+    if (shapeToUse === 'donut') return { w: donutOuterD, l: donutOuterD };
+    if (shapeToUse === 'ellipse') return { w: ellipseW, l: ellipseH };
+    if (shapeToUse === 'semicircle') return { w: semicircleD, l: semicircleD / 2 };
+    if (shapeToUse === 'u-shape') return { w: uW, l: uH };
+    if (shapeToUse === 'c-shape') return { w: cW, l: cH };
+    if (shapeToUse === 't-shape') return { w: tW, l: tH };
+    if (shapeToUse === 'hollow-rect') return { w: hRectW, l: hRectH };
+    if (shapeToUse === 'hexagon') return { w: hexW, l: hexH };
+    if (shapeToUse === 'octagon') return { w: octW, l: octH };
+    if (shapeToUse === 'polygon') return { w: polygonBounds.width || result.bbW, l: polygonBounds.height || result.bbH };
+    if (shapeToUse === 'text') return { w: textBounds.width || result.bbW, l: textBounds.height || result.bbH };
+    return { w: result.bbW, l: result.bbH };
+  }, [rectW, rectH, circleD, result.bbW, result.bbH, triC, triB, donutOuterD, ellipseW, ellipseH, semicircleD, uW, uH, cW, cH, tW, tH, hRectW, hRectH, hexW, hexH, octW, octH, polygonBounds.width, polygonBounds.height, textBounds.width, textBounds.height]);
+
+  const applyLampToPlanner = useCallback((lamp: FormLampItem) => {
+    const width = Math.max(100, lamp.w || 1000);
+    const height = Math.max(100, lamp.l || 1000);
+    setObjectName(lamp.shapeName || 'SC-01');
+    setShape(lamp.objectShape);
+    setLampQ(lamp.q || 1);
+    setLampH(lamp.h || '3');
+    setLampD(lamp.d || '15 เซนติเมตร (Standard)');
+    setLampF(lamp.f || 'ผ้าใบขาว');
+    setLampLight(lamp.t || '3000K');
+
+    if (lamp.objectShape === 'rectangle' || lamp.objectShape === 'custom') {
+      setRectW(width);
+      setRectH(height);
+    } else if (lamp.objectShape === 'circle') {
+      setCircleD(Math.max(width, height));
+    } else if (lamp.objectShape === 'triangle') {
+      setTriA(width);
+      setTriB(height);
+      setTriC(Math.max(100, Math.round((width + height) / 2)));
+    } else if (lamp.objectShape === 'donut') {
+      const outer = Math.max(width, height);
+      setDonutOuterD(outer);
+      setDonutInnerD(Math.max(100, Math.round(outer * 0.5)));
+    } else if (lamp.objectShape === 'ellipse') {
+      setEllipseW(width);
+      setEllipseH(height);
+    } else if (lamp.objectShape === 'semicircle') {
+      setSemicircleD(Math.max(width, height));
+    } else if (lamp.objectShape === 'u-shape') {
+      setUW(width);
+      setUH(height);
+    } else if (lamp.objectShape === 'c-shape') {
+      setCW(width);
+      setCH(height);
+    } else if (lamp.objectShape === 't-shape') {
+      setTW(width);
+      setTH(height);
+    } else if (lamp.objectShape === 'hollow-rect') {
+      setHRectW(width);
+      setHRectH(height);
+    } else if (lamp.objectShape === 'hexagon') {
+      setHexW(width);
+      setHexH(height);
+    } else if (lamp.objectShape === 'octagon') {
+      setOctW(width);
+      setOctH(height);
+    } else if (lamp.objectShape === 'text') {
+      setTextHeightMM(height);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (appView !== 'planner' || !plannerLampId) return;
+    const selectedLamp = formLamps.find(l => l.id === plannerLampId);
+    if (selectedLamp) applyLampToPlanner(selectedLamp);
+  }, [appView, plannerLampId]);
+
+  React.useEffect(() => {
+    if (appView !== 'planner' || !plannerLampId) return;
+    const dims = getPlannerDimensions(shape);
+    setFormLamps(prev => prev.map(lamp => {
+      if (lamp.id !== plannerLampId) return lamp;
+      const nextW = Math.max(1, Math.round(dims.w));
+      const nextL = Math.max(1, Math.round(dims.l));
+      const hasChanges =
+        lamp.objectShape !== shape ||
+        lamp.shapeName !== objectName ||
+        lamp.w !== nextW ||
+        lamp.l !== nextL ||
+        lamp.q !== lampQ ||
+        lamp.h !== lampH ||
+        lamp.d !== lampD ||
+        lamp.f !== lampF ||
+        lamp.t !== lampLight;
+
+      if (!hasChanges) return lamp;
+      return {
+        ...lamp,
+        objectShape: shape,
+        shapeName: objectName,
+        w: nextW,
+        l: nextL,
+        q: lampQ,
+        h: lampH,
+        d: lampD,
+        f: lampF,
+        t: lampLight,
+      };
+    }));
+  }, [appView, plannerLampId, shape, objectName, lampQ, lampH, lampD, lampF, lampLight, getPlannerDimensions]);
+
   const addToTemplate = () => {
     if (!svgRef.current) return;
     const svgClone = svgRef.current.cloneNode(true) as SVGSVGElement;
     const innerHTML = svgClone.innerHTML;
-    
-    setPages([...pages, {
-      id: Math.random().toString(36).substring(7),
+
+    const pageId = plannerLampId || Math.random().toString(36).substring(7);
+    const nextPage: PageData = {
+      id: pageId,
       svgContent: innerHTML,
       viewBox: viewBox,
       bbW: result.bbW,
@@ -1084,11 +1206,81 @@ Use Chain-of-Thought reasoning to:
       f: lampF,
       t: lampLight,
       exactAreaSqm: calculateExactAreaSqm()
-    }]);
+    };
+
+    setPages(prev => {
+      const idx = prev.findIndex(p => p.id === pageId);
+      if (idx >= 0) {
+        const clone = [...prev];
+        clone[idx] = nextPage;
+        return clone;
+      }
+      return [...prev, nextPage];
+    });
   };
 
+  const buildFormTemplatePage = (lamp: FormLampItem, index: number): PageData => {
+    const width = Math.max(100, lamp.w || 1000);
+    const height = Math.max(100, lamp.l || 1000);
+    const thickness = Math.max(20, Math.min(width, height) * 0.2);
+    const cx = width / 2;
+    const cy = height / 2;
+    const shapePathByType: Record<ShapeType, string> = {
+      rectangle: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+      circle: `M ${cx} ${cy} m -${Math.min(width, height) / 2}, 0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 ${Math.min(width, height)},0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 -${Math.min(width, height)},0`,
+      triangle: `M ${width / 2} 0 L ${width} ${height} L 0 ${height} Z`,
+      donut: `M ${cx} ${cy} m -${Math.min(width, height) / 2}, 0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 ${Math.min(width, height)},0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 -${Math.min(width, height)},0 M ${cx} ${cy} m -${Math.min(width, height) / 4}, 0 a ${Math.min(width, height) / 4},${Math.min(width, height) / 4} 0 1,1 ${Math.min(width, height) / 2},0 a ${Math.min(width, height) / 4},${Math.min(width, height) / 4} 0 1,1 -${Math.min(width, height) / 2},0`,
+      ellipse: `M ${cx} ${cy} m -${width / 2}, 0 a ${width / 2},${height / 2} 0 1,0 ${width},0 a ${width / 2},${height / 2} 0 1,0 -${width},0`,
+      semicircle: `M 0 ${height} A ${width / 2} ${height} 0 0 1 ${width} ${height} L 0 ${height} Z`,
+      'u-shape': `M 0 0 L ${thickness} 0 L ${thickness} ${height - thickness} L ${width - thickness} ${height - thickness} L ${width - thickness} 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+      'c-shape': `M 0 0 L ${width} 0 L ${width} ${thickness} L ${thickness} ${thickness} L ${thickness} ${height - thickness} L ${width} ${height - thickness} L ${width} ${height} L 0 ${height} Z`,
+      't-shape': `M 0 0 L ${width} 0 L ${width} ${thickness} L ${width / 2 + thickness / 2} ${thickness} L ${width / 2 + thickness / 2} ${height} L ${width / 2 - thickness / 2} ${height} L ${width / 2 - thickness / 2} ${thickness} L 0 ${thickness} Z`,
+      'hollow-rect': `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z M ${thickness} ${thickness} L ${thickness} ${height - thickness} L ${width - thickness} ${height - thickness} L ${width - thickness} ${thickness} Z`,
+      hexagon: `M ${width / 2} 0 L ${width} ${height / 4} L ${width} ${3 * height / 4} L ${width / 2} ${height} L 0 ${3 * height / 4} L 0 ${height / 4} Z`,
+      octagon: `M ${width * 0.3} 0 L ${width * 0.7} 0 L ${width} ${height * 0.3} L ${width} ${height * 0.7} L ${width * 0.7} ${height} L ${width * 0.3} ${height} L 0 ${height * 0.7} L 0 ${height * 0.3} Z`,
+      polygon: `M ${width / 2} 0 L ${width} ${height * 0.35} L ${width * 0.8} ${height} L ${width * 0.2} ${height} L 0 ${height * 0.35} Z`,
+      text: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+      custom: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+    };
+
+    const shapePath = shapePathByType[lamp.objectShape] || shapePathByType.rectangle;
+    const padding = Math.max(width, height) * 0.15;
+    const labelY = height + padding * 0.6;
+    const viewBox = `${-padding} ${-padding} ${width + padding * 2} ${height + padding * 1.6}`;
+    const areaSqm = (width * height) / 1000000;
+
+    const svgContent = `
+      <path d="${shapePath}" fill="white" stroke="#525252" stroke-width="3" />
+      <text x="0" y="${labelY}" font-size="22" fill="#111827" font-family="sans-serif">${lamp.shapeName || `Lamp ${index + 1}`}</text>
+      <text x="0" y="${labelY + 28}" font-size="18" fill="#374151" font-family="sans-serif">${width.toFixed(0)} x ${height.toFixed(0)} mm | QTY ${lamp.q}</text>
+    `;
+
+    return {
+      id: lamp.id,
+      svgContent,
+      viewBox,
+      bbW: width,
+      bbH: height,
+      name: `${lamp.shapeName || `Lamp ${index + 1}`} (${lamp.objectShape})`,
+      q: lamp.q,
+      h: lamp.h,
+      d: lamp.d,
+      f: lamp.f,
+      t: lamp.t,
+      exactAreaSqm: areaSqm,
+    };
+  };
+
+  const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePage(lamp, index)), [formLamps]);
+  const effectiveTemplatePages = useMemo(() => {
+    const formIds = new Set(formTemplatePages.map(page => page.id));
+    const merged = formTemplatePages.map(page => pages.find(customPage => customPage.id === page.id) || page);
+    const extras = pages.filter(page => !formIds.has(page.id));
+    return [...merged, ...extras];
+  }, [pages, formTemplatePages]);
+
   const generateTemplatePDF = async () => {
-    if (pages.length === 0) {
+    if (effectiveTemplatePages.length === 0) {
       alert("Please add at least one page to the template.");
       return;
     }
@@ -1105,9 +1297,9 @@ Use Chain-of-Thought reasoning to:
       const coverImgData = await svgToPng(coverSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
       pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
       
-      for (let i = 0; i < pages.length; i++) {
+      for (let i = 0; i < effectiveTemplatePages.length; i++) {
         pdf.addPage('a3', 'landscape');
-        const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
+        const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
         const pageImgData = await svgToPng(pageSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
         pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
       }
@@ -1123,7 +1315,7 @@ Use Chain-of-Thought reasoning to:
   };
 
   const sendToBOQ = async () => {
-    if (pages.length === 0) {
+    if (effectiveTemplatePages.length === 0) {
       alert("Please add at least one page to the template.");
       return;
     }
@@ -1138,9 +1330,9 @@ Use Chain-of-Thought reasoning to:
       const coverImgData = await svgToPng(coverSvgString, exportWidthPx, exportHeightPx);
       pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
       
-      for (let i = 0; i < pages.length; i++) {
+      for (let i = 0; i < effectiveTemplatePages.length; i++) {
         pdf.addPage('a3', 'landscape');
-        const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
+        const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
         const pageImgData = await svgToPng(pageSvgString, exportWidthPx, exportHeightPx);
         pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
       }
@@ -1158,7 +1350,7 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure: structure,
-        lamps: pages.map((p, index) => ({
+        lamps: effectiveTemplatePages.map((p, index) => ({
           shapeName: p.name,
           w: (p.bbW / 1000).toFixed(2),
           l: (p.bbH / 1000).toFixed(2),
@@ -1241,26 +1433,40 @@ Use Chain-of-Thought reasoning to:
   };
 
   const addFormLamp = () => {
-    setFormLamps(prev => [
-      ...prev,
-      {
-        id: Math.random().toString(36).slice(2),
-        objectShape: 'rectangle',
-        shapeName: '',
-        w: 0,
-        l: 0,
-        q: 1,
-        h: '3',
-        d: '10 เซนติเมตร',
-        f: 'ผ้าใบขาว',
-        t: '3000K',
-        file: null,
-      },
-    ]);
+    const nextLamp: FormLampItem = {
+      id: Math.random().toString(36).slice(2),
+      objectShape: 'rectangle',
+      shapeName: '',
+      w: 0,
+      l: 0,
+      q: 1,
+      h: '3',
+      d: '10 เซนติเมตร',
+      f: 'ผ้าใบขาว',
+      t: '3000K',
+      file: null,
+    };
+    setFormLamps(prev => [...prev, nextLamp]);
+    setPlannerLampId(nextLamp.id);
   };
 
   const removeFormLamp = (id: string) => {
     setFormLamps(prev => (prev.length > 1 ? prev.filter(item => item.id !== id) : prev));
+    setPages(prev => prev.filter(page => page.id !== id));
+  };
+
+  const getLampMissingFields = (lamp: FormLampItem): string[] => {
+    const missing: string[] = [];
+    if (!lamp.shapeName.trim()) missing.push('Type');
+    if (!lamp.objectShape) missing.push('Object Shape');
+    if (!lamp.h.trim() || Number.isNaN(Number(lamp.h)) || Number(lamp.h) <= 0) missing.push('ความสูงหน้างาน (ม.)');
+    if (!Number.isFinite(lamp.w) || lamp.w <= 0) missing.push('กว้าง (มม.)');
+    if (!Number.isFinite(lamp.l) || lamp.l <= 0) missing.push('ยาว (มม.)');
+    if (!Number.isFinite(lamp.q) || lamp.q <= 0) missing.push('จำนวน');
+    if (!lamp.d.trim()) missing.push('ความลึกของโครง');
+    if (!lamp.f.trim()) missing.push('ชนิดของผ้าใบ');
+    if (!lamp.t.trim()) missing.push('อุณหภูมิแสง');
+    return missing;
   };
 
   const submitChecklistForm = async () => {
@@ -1268,23 +1474,25 @@ Use Chain-of-Thought reasoning to:
       alert('กรุณากรอก AO/แผนก, ชื่อ Project และสถานที่หน้างานให้ครบ');
       return;
     }
-    if (formLamps.some(l => !l.shapeName.trim() || l.w <= 0 || l.l <= 0 || l.q <= 0)) {
-      alert('กรุณากรอกข้อมูลรายการโคมให้ครบ (Type, กว้าง, ยาว, จำนวน ต้องมากกว่า 0)');
+    const invalidLampIndex = formLamps.findIndex(l => getLampMissingFields(l).length > 0);
+    if (invalidLampIndex >= 0) {
+      const missingFields = getLampMissingFields(formLamps[invalidLampIndex]).join(', ');
+      alert(`กรุณากรอกข้อมูลรายการโคมที่ ${invalidLampIndex + 1} ให้ครบ: ${missingFields}`);
       return;
     }
 
     setIsSubmittingChecklist(true);
     try {
       let templatePdfBase64: string | null = null;
-      if (pages.length > 0) {
+      if (effectiveTemplatePages.length > 0) {
         const templatePdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
         const coverSvgString = generateCoverPageSVG(docDetails);
         const coverImgData = await svgToPng(coverSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
         templatePdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
 
-        for (let i = 0; i < pages.length; i++) {
+        for (let i = 0; i < effectiveTemplatePages.length; i++) {
           templatePdf.addPage('a3', 'landscape');
-          const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
+          const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
           const pageImgData = await svgToPng(pageSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
           templatePdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
         }
@@ -1435,6 +1643,7 @@ Use Chain-of-Thought reasoning to:
 
           <div className="space-y-5 p-6">
             <p className="text-xs font-medium text-red-600">* จำเป็นต้องกรอก</p>
+            <p className="text-xs text-neutral-600">หน่วยที่ใช้ในฟอร์ม: ความสูงหน้างาน = เมตร (ม.), กว้าง/ยาว = มิลลิเมตร (มม.)</p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <TextInput label="ชื่อ AO/แผนก" required value={aoName} onChange={setAoName} />
               <TextInput label="ชื่อ Project" required value={docDetails.projectName} onChange={(v) => setDocDetails({ ...docDetails, projectName: v })} />
@@ -1453,79 +1662,118 @@ Use Chain-of-Thought reasoning to:
             <div className="h-px bg-neutral-200" />
 
             <div className="space-y-4">
-              {formLamps.map((lamp, index) => (
-                <div key={lamp.id} className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-neutral-700">โคมรายการที่ {index + 1}</h3>
-                    {formLamps.length > 1 && (
-                      <button onClick={() => removeFormLamp(lamp.id)} className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200">
-                        ลบรายการนี้
-                      </button>
+              {formLamps.map((lamp, index) => {
+                const missingFields = getLampMissingFields(lamp);
+                const isComplete = missingFields.length === 0;
+                return (
+                  <div key={lamp.id} className={`rounded-lg border p-4 ${isComplete ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/40'}`}>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-neutral-700">โคมรายการที่ {index + 1}</h3>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isComplete ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {isComplete ? 'กรอกครบ' : `ยังไม่ครบ ${missingFields.length} ช่อง`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {index > 0 && (
+                          <button
+                            onClick={() => {
+                              const prevLamp = formLamps[index - 1];
+                              if (!prevLamp) return;
+                              updateFormLamp(lamp.id, {
+                                objectShape: prevLamp.objectShape,
+                                shapeName: prevLamp.shapeName,
+                                w: prevLamp.w,
+                                l: prevLamp.l,
+                                q: prevLamp.q,
+                                h: prevLamp.h,
+                                d: prevLamp.d,
+                                f: prevLamp.f,
+                                t: prevLamp.t,
+                                file: null,
+                              });
+                              setPlannerLampId(lamp.id);
+                            }}
+                            className="rounded bg-sky-100 px-2 py-1 text-xs font-medium text-sky-700 hover:bg-sky-200"
+                          >
+                            คัดลอกจากรายการก่อนหน้า
+                          </button>
+                        )}
+                        {formLamps.length > 1 && (
+                          <button onClick={() => removeFormLamp(lamp.id)} className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200">
+                            ลบรายการนี้
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {!isComplete && (
+                      <p className="mb-3 text-xs text-amber-700">ต้องกรอกเพิ่ม: {missingFields.join(', ')}</p>
                     )}
-                  </div>
+                    <p className="mb-3 text-xs text-neutral-600">หน่วยของรายการนี้: สูง = ม., กว้าง/ยาว = มม.</p>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <TextInput label="Type (ชื่อของโครง)" required value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Object Shape<span className="text-red-600"> *</span></label>
-                      <select
-                        value={lamp.objectShape}
-                        onChange={(e) => updateFormLamp(lamp.id, { objectShape: e.target.value as ShapeType })}
-                        className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm"
-                      >
-                        {SHAPE_OPTIONS.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <TextInput label="ความสูงหน้างาน (ม.)" required value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
-                    <Input label="กว้าง (มม.)" required value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
-                    <Input label="ยาว (มม.)" required value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
-                    <Input label="จำนวน" required value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง<span className="text-red-600"> *</span></label>
-                      <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
-                        <option value="10 เซนติเมตร">10 เซนติเมตร</option>
-                        <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
-                        <option value="อื่นๆ">อื่นๆ</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ชนิดของผ้าใบ<span className="text-red-600"> *</span></label>
-                      <select value={lamp.f} onChange={(e) => updateFormLamp(lamp.id, { f: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
-                        <option value="ผ้าใบขาว">ผ้าใบขาว</option>
-                        <option value="พิมพ์ลาย">พิมพ์ลาย</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">อุณหภูมิแสง<span className="text-red-600"> *</span></label>
-                      <select value={lamp.t} onChange={(e) => updateFormLamp(lamp.id, { t: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
-                        <option value="3000K">3000K</option>
-                        <option value="4000K">4000K</option>
-                        <option value="6500K">6500K</option>
-                        <option value="Tunable White">Tunable White</option>
-                        <option value="RGBW">RGBW</option>
-                      </select>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ไฟล์ CAD/ภาพ Perspective (ถ้ามี)</label>
-                      <div className="flex items-center gap-3 rounded border border-neutral-300 bg-white p-2">
-                        <label htmlFor={`lamp-file-${lamp.id}`} className="cursor-pointer rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
-                          เลือกไฟล์
-                        </label>
-                        <span className="truncate text-sm text-neutral-600">{lamp.file ? lamp.file.name : 'ยังไม่ได้เลือกไฟล์'}</span>
-                        <input
-                          id={`lamp-file-${lamp.id}`}
-                          type="file"
-                          accept=".pdf,.jpg,.jpeg,.png,.dwg,.dxf"
-                          onChange={(e) => updateFormLamp(lamp.id, { file: e.target.files?.[0] || null })}
-                          className="hidden"
-                        />
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <TextInput label="Type (ชื่อของโครง)" required invalid={missingFields.includes('Type')} value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
+                      <div>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Object Shape<span className="text-red-600"> *</span></label>
+                        <select
+                          value={lamp.objectShape}
+                          onChange={(e) => updateFormLamp(lamp.id, { objectShape: e.target.value as ShapeType })}
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('Object Shape') ? 'border-red-400' : 'border-neutral-300'}`}
+                        >
+                          {SHAPE_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <TextInput label="ความสูงหน้างาน (ม.)" required invalid={missingFields.includes('ความสูงหน้างาน (ม.)')} value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
+                      <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
+                      <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
+                      <Input label="จำนวน" required invalid={missingFields.includes('จำนวน')} value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
+                      <div>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง<span className="text-red-600"> *</span></label>
+                        <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ความลึกของโครง') ? 'border-red-400' : 'border-neutral-300'}`}>
+                          <option value="10 เซนติเมตร">10 เซนติเมตร</option>
+                          <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
+                          <option value="อื่นๆ">อื่นๆ</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ชนิดของผ้าใบ<span className="text-red-600"> *</span></label>
+                        <select value={lamp.f} onChange={(e) => updateFormLamp(lamp.id, { f: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ชนิดของผ้าใบ') ? 'border-red-400' : 'border-neutral-300'}`}>
+                          <option value="ผ้าใบขาว">ผ้าใบขาว</option>
+                          <option value="พิมพ์ลาย">พิมพ์ลาย</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">อุณหภูมิแสง<span className="text-red-600"> *</span></label>
+                        <select value={lamp.t} onChange={(e) => updateFormLamp(lamp.id, { t: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('อุณหภูมิแสง') ? 'border-red-400' : 'border-neutral-300'}`}>
+                          <option value="3000K">3000K</option>
+                          <option value="4000K">4000K</option>
+                          <option value="6500K">6500K</option>
+                          <option value="Tunable White">Tunable White</option>
+                          <option value="RGBW">RGBW</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ไฟล์ CAD/ภาพ Perspective (ถ้ามี)</label>
+                        <div className="flex items-center gap-3 rounded border border-neutral-300 bg-white p-2">
+                          <label htmlFor={`lamp-file-${lamp.id}`} className="cursor-pointer rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+                            เลือกไฟล์
+                          </label>
+                          <span className="truncate text-sm text-neutral-600">{lamp.file ? lamp.file.name : 'ยังไม่ได้เลือกไฟล์'}</span>
+                          <input
+                            id={`lamp-file-${lamp.id}`}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,.dwg,.dxf"
+                            onChange={(e) => updateFormLamp(lamp.id, { file: e.target.files?.[0] || null })}
+                            className="hidden"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               <button onClick={addFormLamp} className="w-full rounded border border-dashed border-sky-400 bg-sky-50 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100">
                 + เพิ่มรายการโคม (Type ใหม่)
@@ -1535,10 +1783,8 @@ Use Chain-of-Thought reasoning to:
             <div className="flex flex-col gap-3 pt-2 md:flex-row md:justify-end">
               <button
                 onClick={() => {
-                  if (formLamps.length > 0) {
-                    setShape(formLamps[0].objectShape);
-                    setObjectName(formLamps[0].shapeName || objectName);
-                  }
+                  const targetLampId = plannerLampId || formLamps[0]?.id || null;
+                  setPlannerLampId(targetLampId);
                   setAppView('planner');
                 }}
                 className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
@@ -1547,10 +1793,10 @@ Use Chain-of-Thought reasoning to:
               </button>
               <button
                 onClick={generateTemplatePDF}
-                disabled={pages.length === 0 || isGeneratingPDF}
+                disabled={effectiveTemplatePages.length === 0 || isGeneratingPDF}
                 className="rounded border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
-                {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${pages.length})`}
+                {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${effectiveTemplatePages.length})`}
               </button>
               <button
                 onClick={submitChecklistForm}
@@ -1578,6 +1824,27 @@ Use Chain-of-Thought reasoning to:
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-3">
+            <label className="text-xs font-semibold uppercase tracking-wider text-sky-700">Editing Lamp/Page</label>
+            <select
+              value={plannerLampId || ''}
+              onChange={(e) => setPlannerLampId(e.target.value)}
+              className="w-full rounded border border-sky-300 bg-white px-2 py-1.5 text-sm"
+            >
+              {formLamps.map((lamp, idx) => (
+                <option key={lamp.id} value={lamp.id}>
+                  {idx + 1}. {lamp.shapeName || `Lamp ${idx + 1}`} - {lamp.objectShape}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={addFormLamp}
+              className="w-full rounded border border-dashed border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+            >
+              + เพิ่มรายการโคมจากหน้า Planner
+            </button>
+          </div>
+
           <div className="space-y-3">
             <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Project Details</label>
             <div className="grid grid-cols-2 gap-3">
@@ -2133,7 +2400,7 @@ Use Chain-of-Thought reasoning to:
             <FileText size={16} /> Add to Template
           </button>
           <button onClick={() => setShowTemplateSettings(true)} className="px-3 py-1.5 bg-neutral-100 text-neutral-700 hover:bg-neutral-200 rounded text-sm font-medium flex items-center gap-2">
-            Template Settings {pages.length > 0 && <span className="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pages.length}</span>}
+            Template Settings {effectiveTemplatePages.length > 0 && <span className="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{effectiveTemplatePages.length}</span>}
           </button>
           <div className="w-px bg-neutral-200 mx-1 my-1"></div>
           <button onClick={downloadSVG} className="p-2 hover:bg-neutral-100 rounded text-blue-600" title="Download SVG"><Download size={18} /></button>
@@ -2281,15 +2548,25 @@ Use Chain-of-Thought reasoning to:
                   </div>
                 </div>
 
-                <h4 className="text-sm font-medium text-neutral-700 mb-2">Pages in Template ({pages.length})</h4>
-                {pages.length === 0 ? (
+                <h4 className="text-sm font-medium text-neutral-700 mb-2">Pages in Template ({effectiveTemplatePages.length})</h4>
+                {effectiveTemplatePages.length === 0 ? (
                   <p className="text-xs text-neutral-500 italic">No pages added yet. Click "Add to Template" in the preview panel.</p>
                 ) : (
                   <div className="flex gap-2 overflow-x-auto pb-2">
-                    {pages.map((p) => (
+                    {effectiveTemplatePages.map((p) => (
                       <div key={p.id} className="relative flex-shrink-0 w-24 h-24 bg-white border border-neutral-200 rounded flex items-center justify-center group">
                         <svg viewBox={p.viewBox} className="w-20 h-20" dangerouslySetInnerHTML={{__html: p.svgContent}}></svg>
-                        <button onClick={() => setPages(pages.filter(page => page.id !== p.id))} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">
+                        <button
+                          onClick={() => {
+                            const isFromForm = formLamps.some(lamp => lamp.id === p.id);
+                            if (isFromForm) {
+                              removeFormLamp(p.id);
+                            } else {
+                              setPages(prev => prev.filter(page => page.id !== p.id));
+                            }
+                          }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        >
                           <X size={12} />
                         </button>
                         <div className="absolute bottom-1 left-0 right-0 text-center text-[8px] text-neutral-500 bg-white/80">{p.name}</div>
@@ -2303,7 +2580,7 @@ Use Chain-of-Thought reasoning to:
                 <button onClick={() => setShowTemplateSettings(false)} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 rounded">Cancel</button>
                 <button 
                   onClick={generateTemplatePDF} 
-                  disabled={pages.length === 0 || isGeneratingPDF}
+                  disabled={effectiveTemplatePages.length === 0 || isGeneratingPDF}
                   className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 rounded disabled:opacity-50 flex items-center gap-2"
                 >
                   {isGeneratingPDF ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
@@ -2311,7 +2588,7 @@ Use Chain-of-Thought reasoning to:
                 </button>
                 <button 
                   onClick={sendToBOQ} 
-                  disabled={pages.length === 0 || isSendingBOQ}
+                  disabled={effectiveTemplatePages.length === 0 || isSendingBOQ}
                   className="px-4 py-2 text-sm font-medium bg-green-600 text-white hover:bg-green-700 rounded disabled:opacity-50 flex items-center gap-2"
                 >
                   {isSendingBOQ ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
