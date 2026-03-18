@@ -19,6 +19,7 @@ interface SavedShape {
 
 interface FormLampItem {
   id: string;
+  objectShape: ShapeType;
   shapeName: string;
   w: number;
   l: number;
@@ -33,9 +34,27 @@ interface FormLampItem {
 const TEMPLATE_EXPORT_WIDTH = 1050;
 const TEMPLATE_EXPORT_HEIGHT = 742;
 
-const Input = ({ label, value, onChange }: { label: string, value: number, onChange: (v: number) => void }) => (
+const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
+  { value: 'rectangle', label: 'Rectangle' },
+  { value: 'circle', label: 'Circle' },
+  { value: 'triangle', label: 'Triangle' },
+  { value: 'donut', label: 'Donut' },
+  { value: 'ellipse', label: 'Ellipse' },
+  { value: 'semicircle', label: 'Semicircle' },
+  { value: 'u-shape', label: 'U-Shape' },
+  { value: 'c-shape', label: 'C-Shape' },
+  { value: 't-shape', label: 'T-Shape' },
+  { value: 'hollow-rect', label: 'Hollow Rectangle' },
+  { value: 'hexagon', label: 'Hexagon' },
+  { value: 'octagon', label: 'Octagon' },
+  { value: 'polygon', label: 'Custom Polygon' },
+  { value: 'text', label: 'Text Shape' },
+  { value: 'custom', label: 'AI Custom' },
+];
+
+const Input = ({ label, value, onChange, required = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean }) => (
   <div>
-    <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}</label>
+    <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
       type="number" 
       value={value} 
@@ -45,9 +64,9 @@ const Input = ({ label, value, onChange }: { label: string, value: number, onCha
   </div>
 );
 
-const TextInput = ({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) => (
+const TextInput = ({ label, value, onChange, required = false }: { label: string, value: string, onChange: (v: string) => void, required?: boolean }) => (
   <div>
-    <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}</label>
+    <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
       type="text" 
       value={value} 
@@ -265,6 +284,7 @@ export default function App() {
   const [formLamps, setFormLamps] = useState<FormLampItem[]>([
     {
       id: Math.random().toString(36).slice(2),
+      objectShape: 'rectangle',
       shapeName: 'SC-01',
       w: 0,
       l: 0,
@@ -1225,6 +1245,7 @@ Use Chain-of-Thought reasoning to:
       ...prev,
       {
         id: Math.random().toString(36).slice(2),
+        objectShape: 'rectangle',
         shapeName: '',
         w: 0,
         l: 0,
@@ -1254,6 +1275,23 @@ Use Chain-of-Thought reasoning to:
 
     setIsSubmittingChecklist(true);
     try {
+      let templatePdfBase64: string | null = null;
+      if (pages.length > 0) {
+        const templatePdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+        const coverSvgString = generateCoverPageSVG(docDetails);
+        const coverImgData = await svgToPng(coverSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
+        templatePdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
+
+        for (let i = 0; i < pages.length; i++) {
+          templatePdf.addPage('a3', 'landscape');
+          const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
+          const pageImgData = await svgToPng(pageSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
+          templatePdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
+        }
+        const templatePdfDataUri = templatePdf.output('datauristring');
+        templatePdfBase64 = templatePdfDataUri.includes(',') ? templatePdfDataUri.split(',')[1] : templatePdfDataUri;
+      }
+
       const lamps = await Promise.all(formLamps.map(async (lamp, index) => {
         let filePayload: { mimeType: string; data: string; name: string } | null = null;
         if (lamp.file) {
@@ -1267,10 +1305,17 @@ Use Chain-of-Thought reasoning to:
             data: base64Data,
             name: lamp.file.name || `lamp-${index + 1}.pdf`,
           };
+        } else if (index === 0 && templatePdfBase64) {
+          filePayload = {
+            mimeType: 'application/pdf',
+            data: templatePdfBase64,
+            name: `${docDetails.projectName || 'template'}_Drawing.pdf`,
+          };
         }
 
         return {
           shapeName: lamp.shapeName,
+          objectShape: lamp.objectShape,
           w: lamp.w.toFixed(2),
           l: lamp.l.toFixed(2),
           q: lamp.q,
@@ -1389,14 +1434,15 @@ Use Chain-of-Thought reasoning to:
           </div>
 
           <div className="space-y-5 p-6">
+            <p className="text-xs font-medium text-red-600">* จำเป็นต้องกรอก</p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <TextInput label="ชื่อ AO/แผนก *" value={aoName} onChange={setAoName} />
-              <TextInput label="ชื่อ Project *" value={docDetails.projectName} onChange={(v) => setDocDetails({ ...docDetails, projectName: v })} />
-              <TextInput label="สถานที่หน้างาน *" value={docDetails.location} onChange={(v) => setDocDetails({ ...docDetails, location: v })} />
+              <TextInput label="ชื่อ AO/แผนก" required value={aoName} onChange={setAoName} />
+              <TextInput label="ชื่อ Project" required value={docDetails.projectName} onChange={(v) => setDocDetails({ ...docDetails, projectName: v })} />
+              <TextInput label="สถานที่หน้างาน" required value={docDetails.location} onChange={(v) => setDocDetails({ ...docDetails, location: v })} />
               <TextInput label="Project Number" value={docDetails.projectNumber} onChange={(v) => setDocDetails({ ...docDetails, projectNumber: v })} />
               <TextInput label="ผู้ติดต่อ / Client" value={docDetails.client} onChange={(v) => setDocDetails({ ...docDetails, client: v })} />
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องงานโครงสร้างใหม่? *</label>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องงานโครงสร้างใหม่?<span className="text-red-600"> *</span></label>
                 <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
                   <option value="ทำ">ทำ</option>
                   <option value="ไม่ทำ">ไม่ทำ</option>
@@ -1419,13 +1465,25 @@ Use Chain-of-Thought reasoning to:
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <TextInput label="Type (ชื่อของโครง) *" value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
-                    <TextInput label="ความสูงหน้างาน (ม.) *" value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
-                    <Input label="กว้าง (มม.) *" value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
-                    <Input label="ยาว (มม.) *" value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
-                    <Input label="จำนวน *" value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
+                    <TextInput label="Type (ชื่อของโครง)" required value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
                     <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง *</label>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Object Shape<span className="text-red-600"> *</span></label>
+                      <select
+                        value={lamp.objectShape}
+                        onChange={(e) => updateFormLamp(lamp.id, { objectShape: e.target.value as ShapeType })}
+                        className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm"
+                      >
+                        {SHAPE_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <TextInput label="ความสูงหน้างาน (ม.)" required value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
+                    <Input label="กว้าง (มม.)" required value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
+                    <Input label="ยาว (มม.)" required value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
+                    <Input label="จำนวน" required value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง<span className="text-red-600"> *</span></label>
                       <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
                         <option value="10 เซนติเมตร">10 เซนติเมตร</option>
                         <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
@@ -1433,14 +1491,14 @@ Use Chain-of-Thought reasoning to:
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ชนิดของผ้าใบ *</label>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ชนิดของผ้าใบ<span className="text-red-600"> *</span></label>
                       <select value={lamp.f} onChange={(e) => updateFormLamp(lamp.id, { f: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
                         <option value="ผ้าใบขาว">ผ้าใบขาว</option>
                         <option value="พิมพ์ลาย">พิมพ์ลาย</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">อุณหภูมิแสง *</label>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">อุณหภูมิแสง<span className="text-red-600"> *</span></label>
                       <select value={lamp.t} onChange={(e) => updateFormLamp(lamp.id, { t: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
                         <option value="3000K">3000K</option>
                         <option value="4000K">4000K</option>
@@ -1451,11 +1509,19 @@ Use Chain-of-Thought reasoning to:
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ไฟล์ CAD/ภาพ Perspective (ถ้ามี)</label>
-                      <input
-                        type="file"
-                        onChange={(e) => updateFormLamp(lamp.id, { file: e.target.files?.[0] || null })}
-                        className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm"
-                      />
+                      <div className="flex items-center gap-3 rounded border border-neutral-300 bg-white p-2">
+                        <label htmlFor={`lamp-file-${lamp.id}`} className="cursor-pointer rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+                          เลือกไฟล์
+                        </label>
+                        <span className="truncate text-sm text-neutral-600">{lamp.file ? lamp.file.name : 'ยังไม่ได้เลือกไฟล์'}</span>
+                        <input
+                          id={`lamp-file-${lamp.id}`}
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png,.dwg,.dxf"
+                          onChange={(e) => updateFormLamp(lamp.id, { file: e.target.files?.[0] || null })}
+                          className="hidden"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1467,8 +1533,24 @@ Use Chain-of-Thought reasoning to:
             </div>
 
             <div className="flex flex-col gap-3 pt-2 md:flex-row md:justify-end">
-              <button onClick={() => setAppView('planner')} className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100">
+              <button
+                onClick={() => {
+                  if (formLamps.length > 0) {
+                    setShape(formLamps[0].objectShape);
+                    setObjectName(formLamps[0].shapeName || objectName);
+                  }
+                  setAppView('planner');
+                }}
+                className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+              >
                 เปิดเครื่องมือวาดขั้นสูง
+              </button>
+              <button
+                onClick={generateTemplatePDF}
+                disabled={pages.length === 0 || isGeneratingPDF}
+                className="rounded border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+              >
+                {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${pages.length})`}
               </button>
               <button
                 onClick={submitChecklistForm}
