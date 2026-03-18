@@ -23,6 +23,7 @@ interface FormLampItem {
   shapeName: string;
   w: number;
   l: number;
+  innerDia: number;
   q: number;
   h: string;
   d: string;
@@ -31,8 +32,10 @@ interface FormLampItem {
   file: File | null;
 }
 
-const TEMPLATE_EXPORT_WIDTH = 1050;
-const TEMPLATE_EXPORT_HEIGHT = 742;
+const TEMPLATE_DOWNLOAD_WIDTH = 2100;
+const TEMPLATE_DOWNLOAD_HEIGHT = 1484;
+const TEMPLATE_API_WIDTH = 1050;
+const TEMPLATE_API_HEIGHT = 742;
 
 const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
   { value: 'rectangle', label: 'Rectangle (สี่เหลี่ยม)' },
@@ -260,6 +263,7 @@ export default function App() {
     viewBox: string;
     bbW: number;
     bbH: number;
+    moduleCount: number;
     name: string;
     q: number;
     h: string;
@@ -288,6 +292,7 @@ export default function App() {
       shapeName: 'SC-01',
       w: 0,
       l: 0,
+      innerDia: 500,
       q: 1,
       h: '3',
       d: '10 เซนติเมตร',
@@ -1141,7 +1146,7 @@ Use Chain-of-Thought reasoning to:
     } else if (lamp.objectShape === 'donut') {
       const outer = Math.max(width, height);
       setDonutOuterD(outer);
-      setDonutInnerD(Math.max(100, Math.round(outer * 0.5)));
+      setDonutInnerD(Math.max(10, Math.min(outer - 10, lamp.innerDia || Math.round(outer * 0.5))));
     } else if (lamp.objectShape === 'ellipse') {
       setEllipseW(width);
       setEllipseH(height);
@@ -1201,6 +1206,7 @@ Use Chain-of-Thought reasoning to:
         shapeName: objectName,
         w: nextW,
         l: nextL,
+        innerDia: shape === 'donut' ? donutInnerD : lamp.innerDia,
         q: lampQ,
         h: lampH,
         d: lampD,
@@ -1208,7 +1214,7 @@ Use Chain-of-Thought reasoning to:
         t: lampLight,
       };
     }));
-  }, [appView, plannerLampId, shape, objectName, lampQ, lampH, lampD, lampF, lampLight, getPlannerDimensions]);
+  }, [appView, plannerLampId, shape, objectName, donutInnerD, lampQ, lampH, lampD, lampF, lampLight, getPlannerDimensions]);
 
   const addToTemplate = () => {
     if (!svgRef.current) return;
@@ -1222,6 +1228,7 @@ Use Chain-of-Thought reasoning to:
       viewBox: viewBox,
       bbW: result.bbW,
       bbH: result.bbH,
+      moduleCount: result.modules.length,
       name: `${objectName} (${shape})`,
       q: lampQ,
       h: lampH,
@@ -1248,11 +1255,13 @@ Use Chain-of-Thought reasoning to:
     const thickness = Math.max(20, Math.min(width, height) * 0.2);
     const cx = width / 2;
     const cy = height / 2;
+    const donutOuter = Math.max(100, width);
+    const donutInner = Math.max(10, Math.min(donutOuter - 10, lamp.innerDia || Math.round(donutOuter * 0.5)));
     const shapePathByType: Record<ShapeType, string> = {
       rectangle: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
       circle: `M ${cx} ${cy} m -${Math.min(width, height) / 2}, 0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 ${Math.min(width, height)},0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 -${Math.min(width, height)},0`,
       triangle: `M ${width / 2} 0 L ${width} ${height} L 0 ${height} Z`,
-      donut: `M ${cx} ${cy} m -${Math.min(width, height) / 2}, 0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 ${Math.min(width, height)},0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 -${Math.min(width, height)},0 M ${cx} ${cy} m -${Math.min(width, height) / 4}, 0 a ${Math.min(width, height) / 4},${Math.min(width, height) / 4} 0 1,1 ${Math.min(width, height) / 2},0 a ${Math.min(width, height) / 4},${Math.min(width, height) / 4} 0 1,1 -${Math.min(width, height) / 2},0`,
+      donut: `M ${donutOuter / 2} ${donutOuter / 2} m -${donutOuter / 2}, 0 a ${donutOuter / 2},${donutOuter / 2} 0 1,0 ${donutOuter},0 a ${donutOuter / 2},${donutOuter / 2} 0 1,0 -${donutOuter},0 M ${donutOuter / 2} ${donutOuter / 2} m -${donutInner / 2}, 0 a ${donutInner / 2},${donutInner / 2} 0 1,1 ${donutInner},0 a ${donutInner / 2},${donutInner / 2} 0 1,1 -${donutInner},0`,
       ellipse: `M ${cx} ${cy} m -${width / 2}, 0 a ${width / 2},${height / 2} 0 1,0 ${width},0 a ${width / 2},${height / 2} 0 1,0 -${width},0`,
       semicircle: `M 0 ${height} A ${width / 2} ${height} 0 0 1 ${width} ${height} L 0 ${height} Z`,
       'u-shape': `M 0 0 L ${thickness} 0 L ${thickness} ${height - thickness} L ${width - thickness} ${height - thickness} L ${width - thickness} 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
@@ -1284,6 +1293,7 @@ Use Chain-of-Thought reasoning to:
       viewBox,
       bbW: width,
       bbH: height,
+      moduleCount: 1,
       name: `${lamp.shapeName || `Lamp ${index + 1}`} (${lamp.objectShape})`,
       q: lamp.q,
       h: lamp.h,
@@ -1295,20 +1305,56 @@ Use Chain-of-Thought reasoning to:
   };
 
   const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePage(lamp, index)), [formLamps]);
+  const plannerDraftPage = useMemo<PageData | null>(() => {
+    if (appView !== 'planner' || !plannerLampId) return null;
+    const moduleRects = result.modules.map((mod) => `
+      <g transform="translate(${mod.x}, ${mod.y})">
+        <rect width="${mod.w}" height="${mod.h}" fill="rgba(59,130,246,0.15)" stroke="#2563eb" stroke-width="1.5" />
+        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="2" fill="#2563eb" />
+      </g>
+    `).join('');
+
+    const pathMarkup = shape === 'custom' && customPath
+      ? `<path d="${result.shapePath}" transform="scale(${result.bbW / 100}, ${result.bbH / 100})" fill="white" stroke="#525252" stroke-width="2" vector-effect="non-scaling-stroke" />`
+      : `<path d="${result.shapePath}" fill="white" stroke="#525252" stroke-width="2" />`;
+
+    return {
+      id: plannerLampId,
+      svgContent: `${pathMarkup}${moduleRects}`,
+      viewBox,
+      bbW: result.bbW,
+      bbH: result.bbH,
+      moduleCount: result.modules.length,
+      name: `${objectName} (${shape})`,
+      q: lampQ,
+      h: lampH,
+      d: lampD,
+      f: lampF,
+      t: lampLight,
+      exactAreaSqm: calculateExactAreaSqm(),
+    };
+  }, [appView, plannerLampId, result.modules, result.shapePath, result.bbW, result.bbH, shape, customPath, viewBox, objectName, lampQ, lampH, lampD, lampF, lampLight, calculateExactAreaSqm]);
+
   const effectiveTemplatePages = useMemo(() => {
     const formIds = new Set(formTemplatePages.map(page => page.id));
     const merged = formTemplatePages.map(page => pages.find(customPage => customPage.id === page.id) || page);
+    const withPlannerDraft = merged.map(page => {
+      if (!plannerDraftPage || page.id !== plannerDraftPage.id) return page;
+      return plannerDraftPage;
+    });
     const extras = pages.filter(page => !formIds.has(page.id));
-    return [...merged, ...extras];
-  }, [pages, formTemplatePages]);
+    return [...withPlannerDraft, ...extras];
+  }, [pages, formTemplatePages, plannerDraftPage]);
 
   const pricingSummary = useMemo(() => {
     const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
-    const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + p.q, 0);
+    const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
     const moduleCost = totalModules * 21;
     const fabricCost = totalAreaSqm <= 7 ? 12000 : totalAreaSqm * 1670;
     const structureCost = totalAreaSqm <= 7 ? 22000 : totalAreaSqm * 5000;
-    const subtotalBeforeGP = fabricCost + structureCost + moduleCost;
+    const requiresScaffold = effectiveTemplatePages.some((p) => Number(p.h) >= 3);
+    const scaffoldCost = requiresScaffold ? 8000 : 0;
+    const subtotalBeforeGP = fabricCost + structureCost + moduleCost + scaffoldCost;
     const estimatedPrice = subtotalBeforeGP / 0.7;
 
     return {
@@ -1317,6 +1363,7 @@ Use Chain-of-Thought reasoning to:
       moduleCost,
       fabricCost,
       structureCost,
+      scaffoldCost,
       subtotalBeforeGP,
       estimatedPrice,
     };
@@ -1335,18 +1382,22 @@ Use Chain-of-Thought reasoning to:
     }
 
     const rows: Array<Array<string | number>> = [
-      ['Item', 'Shape Name', 'W (m)', 'L (m)', 'Qty (pcs)', 'Exact Area / Unit (sqm)', 'Total Area / Type (sqm)', 'Module Cost / Type (THB)'],
+      ['Item', 'Shape Name', 'W (m)', 'L (m)', 'Qty (pcs)', 'Modules / Lamp (pcs)', 'Total Modules / Type (pcs)', 'Exact Area / Unit (sqm)', 'Total Area / Type (sqm)', 'Module Cost / Type (THB)'],
     ];
 
     effectiveTemplatePages.forEach((p, idx) => {
+      const modulesPerLamp = Math.max(1, p.moduleCount);
+      const totalModulesPerType = modulesPerLamp * p.q;
       const totalAreaPerType = p.exactAreaSqm * p.q;
-      const moduleCostPerType = p.q * 21;
+      const moduleCostPerType = totalModulesPerType * 21;
       rows.push([
         idx + 1,
         p.name,
         (p.bbW / 1000).toFixed(3),
         (p.bbH / 1000).toFixed(3),
         p.q,
+        modulesPerLamp,
+        totalModulesPerType,
         p.exactAreaSqm.toFixed(4),
         totalAreaPerType.toFixed(4),
         moduleCostPerType.toFixed(2),
@@ -1359,6 +1410,7 @@ Use Chain-of-Thought reasoning to:
     rows.push(['Total Modules (pcs)', pricingSummary.totalModules, '', '', '', '', '', '']);
     rows.push(['Fabric Cost (THB)', pricingSummary.fabricCost.toFixed(2), '', '', '', '', '', '']);
     rows.push(['Structure Cost (THB)', pricingSummary.structureCost.toFixed(2), '', '', '', '', '', '']);
+    rows.push(['Scaffolding Cost (THB)', pricingSummary.scaffoldCost.toFixed(2), '', '', '', '', '', '']);
     rows.push(['Module Cost @21 THB (THB)', pricingSummary.moduleCost.toFixed(2), '', '', '', '', '', '']);
     rows.push(['Subtotal Before GP (THB)', pricingSummary.subtotalBeforeGP.toFixed(2), '', '', '', '', '', '']);
     rows.push(['Estimated Price = Subtotal / 0.7 (THB)', pricingSummary.estimatedPrice.toFixed(2), '', '', '', '', '', '']);
@@ -1390,13 +1442,13 @@ Use Chain-of-Thought reasoning to:
       });
       
       const coverSvgString = generateCoverPageSVG(docDetails);
-      const coverImgData = await svgToPng(coverSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
+      const coverImgData = await svgToPng(coverSvgString, TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
       pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
       
       for (let i = 0; i < effectiveTemplatePages.length; i++) {
         pdf.addPage('a3', 'landscape');
         const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
-        const pageImgData = await svgToPng(pageSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
+        const pageImgData = await svgToPng(pageSvgString, TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
         pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
       }
       
@@ -1418,8 +1470,8 @@ Use Chain-of-Thought reasoning to:
     }
     setIsSendingBOQ(true);
     try {
-      const exportWidthPx = TEMPLATE_EXPORT_WIDTH;
-      const exportHeightPx = TEMPLATE_EXPORT_HEIGHT;
+      const exportWidthPx = TEMPLATE_API_WIDTH;
+      const exportHeightPx = TEMPLATE_API_HEIGHT;
 
       // สร้าง PDF
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
@@ -1453,11 +1505,13 @@ Use Chain-of-Thought reasoning to:
           moduleCost: pricingSummary.moduleCost,
           fabricCost: pricingSummary.fabricCost,
           structureCost: pricingSummary.structureCost,
+          scaffoldCost: pricingSummary.scaffoldCost,
           subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
           estimatedPrice: pricingSummary.estimatedPrice,
         },
         lamps: effectiveTemplatePages.map((p, index) => ({
           shapeName: p.name,
+          moduleCount: p.moduleCount,
           w: (p.bbW / 1000).toFixed(2),
           l: (p.bbH / 1000).toFixed(2),
           q: p.q, h: p.h, d: p.d, f: p.f, t: p.t,
@@ -1545,6 +1599,7 @@ Use Chain-of-Thought reasoning to:
       shapeName: '',
       w: 0,
       l: 0,
+      innerDia: 500,
       q: 1,
       h: '3',
       d: '10 เซนติเมตร',
@@ -1568,6 +1623,11 @@ Use Chain-of-Thought reasoning to:
     if (!lamp.h.trim() || Number.isNaN(Number(lamp.h)) || Number(lamp.h) <= 0) missing.push('ความสูงหน้างาน (ม.)');
     if (!Number.isFinite(lamp.w) || lamp.w <= 0) missing.push('กว้าง (มม.)');
     if (!Number.isFinite(lamp.l) || lamp.l <= 0) missing.push('ยาว (มม.)');
+    if (lamp.objectShape === 'donut') {
+      if (!Number.isFinite(lamp.innerDia) || lamp.innerDia <= 0 || lamp.innerDia >= lamp.w) {
+        missing.push('Inner Dia. (มม.)');
+      }
+    }
     if (!Number.isFinite(lamp.q) || lamp.q <= 0) missing.push('จำนวน');
     if (!lamp.d.trim()) missing.push('ความลึกของโครง');
     if (!lamp.f.trim()) missing.push('ชนิดของผ้าใบ');
@@ -1593,13 +1653,13 @@ Use Chain-of-Thought reasoning to:
       if (effectiveTemplatePages.length > 0) {
         const templatePdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
         const coverSvgString = generateCoverPageSVG(docDetails);
-        const coverImgData = await svgToPng(coverSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
+        const coverImgData = await svgToPng(coverSvgString, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
         templatePdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
 
         for (let i = 0; i < effectiveTemplatePages.length; i++) {
           templatePdf.addPage('a3', 'landscape');
           const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
-          const pageImgData = await svgToPng(pageSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
+          const pageImgData = await svgToPng(pageSvgString, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
           templatePdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
         }
         const templatePdfDataUri = templatePdf.output('datauristring');
@@ -1630,6 +1690,7 @@ Use Chain-of-Thought reasoning to:
         return {
           shapeName: lamp.shapeName,
           objectShape: lamp.objectShape,
+          moduleCount: 1,
           w: lamp.w.toFixed(2),
           l: lamp.l.toFixed(2),
           q: lamp.q,
@@ -1653,6 +1714,7 @@ Use Chain-of-Thought reasoning to:
           moduleCost: pricingSummary.moduleCost,
           fabricCost: pricingSummary.fabricCost,
           structureCost: pricingSummary.structureCost,
+          scaffoldCost: pricingSummary.scaffoldCost,
           subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
           estimatedPrice: pricingSummary.estimatedPrice,
         },
@@ -1794,6 +1856,7 @@ Use Chain-of-Thought reasoning to:
                 <p className="text-lg font-bold text-emerald-900">{pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</p>
               </div>
             </div>
+            <p className="text-xs text-emerald-800">ค่านั่งร้านทีมช่าง: {pricingSummary.scaffoldCost > 0 ? `${pricingSummary.scaffoldCost.toLocaleString('th-TH')} บาท (ความสูงหน้างาน >= 3 ม.)` : '0 บาท'}</p>
 
             <div className="space-y-4">
               {formLamps.map((lamp, index) => {
@@ -1819,6 +1882,7 @@ Use Chain-of-Thought reasoning to:
                                 shapeName: prevLamp.shapeName,
                                 w: prevLamp.w,
                                 l: prevLamp.l,
+                                innerDia: prevLamp.innerDia,
                                 q: prevLamp.q,
                                 h: prevLamp.h,
                                 d: prevLamp.d,
@@ -1860,8 +1924,40 @@ Use Chain-of-Thought reasoning to:
                         </select>
                       </div>
                       <TextInput label="ความสูงหน้างาน (ม.)" required invalid={missingFields.includes('ความสูงหน้างาน (ม.)')} value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
-                      <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
-                      <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
+                      {(lamp.objectShape === 'circle' || lamp.objectShape === 'semicircle') ? (
+                        <>
+                          <Input
+                            label="Diameter (มม.)"
+                            required
+                            invalid={missingFields.includes('กว้าง (มม.)') || missingFields.includes('ยาว (มม.)')}
+                            value={lamp.w}
+                            onChange={(v) => updateFormLamp(lamp.id, { w: v, l: v })}
+                          />
+                          <div className="rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">ทรงนี้ใช้ Diameter เดียว ระบบจะเท่ากับกว้างและยาวอัตโนมัติ</div>
+                        </>
+                      ) : lamp.objectShape === 'donut' ? (
+                        <>
+                          <Input
+                            label="Outer Dia. (มม.)"
+                            required
+                            invalid={missingFields.includes('กว้าง (มม.)') || missingFields.includes('ยาว (มม.)')}
+                            value={lamp.w}
+                            onChange={(v) => updateFormLamp(lamp.id, { w: v, l: v, innerDia: Math.min(lamp.innerDia, Math.max(1, v - 1)) })}
+                          />
+                          <Input
+                            label="Inner Dia. (มม.)"
+                            required
+                            invalid={missingFields.includes('Inner Dia. (มม.)')}
+                            value={lamp.innerDia}
+                            onChange={(v) => updateFormLamp(lamp.id, { innerDia: v })}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
+                          <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
+                        </>
+                      )}
                       <Input label="จำนวน" required invalid={missingFields.includes('จำนวน')} value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง<span className="text-red-600"> *</span></label>
@@ -2686,6 +2782,35 @@ Use Chain-of-Thought reasoning to:
                         <option value="ไม่ทำ">ไม่ทำ</option>
                       </select>
                     </div>
+                  </div>
+                </div>
+
+                <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                  <h4 className="text-sm font-medium text-emerald-800 mb-3">Pricing Breakdown</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <div className="text-neutral-600">Total Area (sqm)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.totalAreaSqm.toFixed(2)}</div>
+
+                    <div className="text-neutral-600">Total Modules (pcs)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.totalModules.toLocaleString('th-TH')}</div>
+
+                    <div className="text-neutral-600">Fabric Cost (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.fabricCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-neutral-600">Structure Cost (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-neutral-600">Scaffolding Cost (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-neutral-600">Module Cost @ 21 THB (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-neutral-600">Subtotal Before GP (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.subtotalBeforeGP.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-emerald-800 font-semibold">Estimated Price = Subtotal / 0.7</div>
+                    <div className="text-right text-emerald-800 font-bold">{pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
                   </div>
                 </div>
 
