@@ -1640,6 +1640,7 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure: structure,
+        templateFile: { mimeType: "application/pdf", data: pdfBase64, name: "Drawing.pdf" },
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -1650,19 +1651,18 @@ Use Chain-of-Thought reasoning to:
           subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
           estimatedPrice: pricingSummary.estimatedPrice,
         },
-        lamps: effectiveTemplatePages.map((p, index) => ({
+        lamps: effectiveTemplatePages.map((p) => ({
           shapeName: p.name,
           moduleCount: p.moduleCount,
           w: (p.bbW / 1000).toFixed(2),
           l: (p.bbH / 1000).toFixed(2),
           q: p.q, h: p.h, d: p.d, f: p.f, t: p.t,
           exactArea: p.exactAreaSqm,
-          // แนบไฟล์เฉพาะรายการแรก เพื่อลด payload ซ้ำซ้อนจนเกิด 413
-          file: index === 0 ? { mimeType: "application/pdf", data: pdfBase64, name: "Drawing.pdf" } : null
+          file: null
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbxYdDxj0_0GR3wcr6XrMzZ_n_4Y9qdEUe1GYR2_aIFhpu3plugJ4cr0dhZCmnQtCmAlAQ/exec";
 
       try {
         // ยิงแบบปกติก่อน (อ่านผลตอบกลับได้)
@@ -1733,6 +1733,96 @@ Use Chain-of-Thought reasoning to:
     setFormLamps(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
   };
 
+  const calculateModulesPerLamp = useCallback((lamp: FormLampItem): number => {
+    const width = Math.max(1, lamp.w || 0);
+    const height = Math.max(1, lamp.l || 0);
+    const innerDia = Math.max(1, Math.min(lamp.innerDia || 1, width - 1));
+
+    if (modW <= 0 || modH <= 0 || spaceX <= 0 || spaceY <= 0) return 1;
+
+    const shapePathByType: Record<ShapeType, string> = {
+      rectangle: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+      circle: `M ${width / 2} ${height / 2} m -${Math.min(width, height) / 2}, 0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 ${Math.min(width, height)},0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 -${Math.min(width, height)},0`,
+      triangle: `M ${width / 2} 0 L ${width} ${height} L 0 ${height} Z`,
+      donut: `M ${width / 2} ${width / 2} m -${width / 2}, 0 a ${width / 2},${width / 2} 0 1,0 ${width},0 a ${width / 2},${width / 2} 0 1,0 -${width},0 M ${width / 2} ${width / 2} m -${innerDia / 2}, 0 a ${innerDia / 2},${innerDia / 2} 0 1,1 ${innerDia},0 a ${innerDia / 2},${innerDia / 2} 0 1,1 -${innerDia},0`,
+      ellipse: `M ${width / 2} ${height / 2} m -${width / 2}, 0 a ${width / 2},${height / 2} 0 1,0 ${width},0 a ${width / 2},${height / 2} 0 1,0 -${width},0`,
+      semicircle: `M 0 ${height} A ${width / 2} ${height} 0 0 1 ${width} ${height} L 0 ${height} Z`,
+      'u-shape': `M 0 0 L ${Math.max(20, width * 0.2)} 0 L ${Math.max(20, width * 0.2)} ${height - Math.max(20, width * 0.2)} L ${width - Math.max(20, width * 0.2)} ${height - Math.max(20, width * 0.2)} L ${width - Math.max(20, width * 0.2)} 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+      'c-shape': `M 0 0 L ${width} 0 L ${width} ${Math.max(20, Math.min(width, height) * 0.2)} L ${Math.max(20, Math.min(width, height) * 0.2)} ${Math.max(20, Math.min(width, height) * 0.2)} L ${Math.max(20, Math.min(width, height) * 0.2)} ${height - Math.max(20, Math.min(width, height) * 0.2)} L ${width} ${height - Math.max(20, Math.min(width, height) * 0.2)} L ${width} ${height} L 0 ${height} Z`,
+      't-shape': `M 0 0 L ${width} 0 L ${width} ${Math.max(20, Math.min(width, height) * 0.2)} L ${width / 2 + Math.max(20, Math.min(width, height) * 0.2) / 2} ${Math.max(20, Math.min(width, height) * 0.2)} L ${width / 2 + Math.max(20, Math.min(width, height) * 0.2) / 2} ${height} L ${width / 2 - Math.max(20, Math.min(width, height) * 0.2) / 2} ${height} L ${width / 2 - Math.max(20, Math.min(width, height) * 0.2) / 2} ${Math.max(20, Math.min(width, height) * 0.2)} L 0 ${Math.max(20, Math.min(width, height) * 0.2)} Z`,
+      'hollow-rect': `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z M ${Math.max(20, Math.min(width, height) * 0.2)} ${Math.max(20, Math.min(width, height) * 0.2)} L ${Math.max(20, Math.min(width, height) * 0.2)} ${height - Math.max(20, Math.min(width, height) * 0.2)} L ${width - Math.max(20, Math.min(width, height) * 0.2)} ${height - Math.max(20, Math.min(width, height) * 0.2)} L ${width - Math.max(20, Math.min(width, height) * 0.2)} ${Math.max(20, Math.min(width, height) * 0.2)} Z`,
+      hexagon: `M ${width / 2} 0 L ${width} ${height / 4} L ${width} ${3 * height / 4} L ${width / 2} ${height} L 0 ${3 * height / 4} L 0 ${height / 4} Z`,
+      octagon: `M ${width * 0.3} 0 L ${width * 0.7} 0 L ${width} ${height * 0.3} L ${width} ${height * 0.7} L ${width * 0.7} ${height} L ${width * 0.3} ${height} L 0 ${height * 0.7} L 0 ${height * 0.3} Z`,
+      polygon: `M ${width / 2} 0 L ${width} ${height * 0.35} L ${width * 0.8} ${height} L ${width * 0.2} ${height} L 0 ${height * 0.35} Z`,
+      text: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+      custom: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
+    };
+
+    const path = new Path2D(shapePathByType[lamp.objectShape] || shapePathByType.rectangle);
+    const testCanvas = document.createElement('canvas');
+    const testCtx = testCanvas.getContext('2d');
+    if (!testCtx) return 1;
+
+    const ny = Math.floor((height - modH) / spaceY) + 1;
+    if (ny <= 0) return 1;
+
+    const arrH = (ny - 1) * spaceY + modH;
+    const startY = (height - arrH) / 2 + modH / 2;
+
+    let arrW = 0;
+    let nxEven = 0;
+    let nxOdd = 0;
+    if (layoutType === 'grid') {
+      nxEven = Math.floor((width - modW) / spaceX) + 1;
+      nxOdd = nxEven;
+      if (nxEven > 0) arrW = (nxEven - 1) * spaceX + modW;
+    } else {
+      nxEven = Math.floor((width - modW) / spaceX) + 1;
+      nxOdd = Math.floor((width - modW - spaceX / 2) / spaceX) + 1;
+      const wEven = nxEven > 0 ? (nxEven - 1) * spaceX + modW : 0;
+      const wOdd = nxOdd > 0 ? spaceX / 2 + (nxOdd - 1) * spaceX + modW : 0;
+      arrW = Math.max(wEven, wOdd);
+    }
+
+    if (arrW <= 0) return 1;
+    const baseStartX = (width - arrW) / 2 + modW / 2;
+
+    let count = 0;
+    for (let j = 0; j < ny; j++) {
+      const isOddRow = j % 2 !== 0;
+      const nx = (layoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
+      const offsetX = (layoutType === 'staggered' && isOddRow) ? spaceX / 2 : 0;
+
+      for (let i = 0; i < nx; i++) {
+        const cx = baseStartX + offsetX + i * spaceX;
+        const cy = startY + j * spaceY;
+        const corners = [
+          { x: cx - modW / 2, y: cy - modH / 2 },
+          { x: cx + modW / 2, y: cy - modH / 2 },
+          { x: cx + modW / 2, y: cy + modH / 2 },
+          { x: cx - modW / 2, y: cy + modH / 2 },
+        ];
+        const inside = corners.every((pt) => testCtx.isPointInPath(path, pt.x, pt.y, 'evenodd'));
+        if (inside) count += 1;
+      }
+    }
+
+    return Math.max(1, count);
+  }, [modW, modH, spaceX, spaceY, layoutType]);
+
+  React.useEffect(() => {
+    setFormLamps((prev) => {
+      let changed = false;
+      const next = prev.map((lamp) => {
+        const modulesPerLamp = calculateModulesPerLamp(lamp);
+        if (lamp.modulesPerLamp === modulesPerLamp) return lamp;
+        changed = true;
+        return { ...lamp, modulesPerLamp };
+      });
+      return changed ? next : prev;
+    });
+  }, [formLamps, calculateModulesPerLamp]);
+
   const addFormLamp = () => {
     const nextLamp: FormLampItem = {
       id: Math.random().toString(36).slice(2),
@@ -1792,13 +1882,29 @@ Use Chain-of-Thought reasoning to:
     setIsSubmittingChecklist(true);
     try {
       let templatePdfBase64: string | null = null;
+      let templateFilePayload: { mimeType: string; data: string; name: string } | null = null;
       if (effectiveTemplatePages.length > 0) {
         const templatePdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
         const templatePdfDataUri = templatePdf.output('datauristring');
         templatePdfBase64 = templatePdfDataUri.includes(',') ? templatePdfDataUri.split(',')[1] : templatePdfDataUri;
+        if (templatePdfBase64) {
+          templateFilePayload = {
+            mimeType: 'application/pdf',
+            data: templatePdfBase64,
+            name: `${docDetails.projectName || 'template'}_Drawing.pdf`,
+          };
+        }
       }
 
+      const pageById = new Map<string, PageData>(effectiveTemplatePages.map((p) => [p.id, p]));
+
       const lamps = await Promise.all(formLamps.map(async (lamp, index) => {
+        const matchedPage = pageById.get(lamp.id);
+        const moduleCount = matchedPage ? Math.max(1, matchedPage.moduleCount) : Math.max(1, lamp.modulesPerLamp || 1);
+        const exactArea = matchedPage ? matchedPage.exactAreaSqm : (lamp.w * lamp.l) / 1000000;
+        const widthMeters = matchedPage ? matchedPage.bbW / 1000 : lamp.w / 1000;
+        const lengthMeters = matchedPage ? matchedPage.bbH / 1000 : lamp.l / 1000;
+
         let filePayload: { mimeType: string; data: string; name: string } | null = null;
         if (lamp.file) {
           if (lamp.file.size > 6 * 1024 * 1024) {
@@ -1811,26 +1917,20 @@ Use Chain-of-Thought reasoning to:
             data: base64Data,
             name: lamp.file.name || `lamp-${index + 1}.pdf`,
           };
-        } else if (index === 0 && templatePdfBase64) {
-          filePayload = {
-            mimeType: 'application/pdf',
-            data: templatePdfBase64,
-            name: `${docDetails.projectName || 'template'}_Drawing.pdf`,
-          };
         }
 
         return {
           shapeName: lamp.shapeName,
           objectShape: lamp.objectShape,
-          moduleCount: 1,
-          w: lamp.w.toFixed(2),
-          l: lamp.l.toFixed(2),
+          moduleCount,
+          w: widthMeters.toFixed(2),
+          l: lengthMeters.toFixed(2),
           q: lamp.q,
           h: lamp.h,
           d: lamp.d,
           f: lamp.f,
           t: lamp.t,
-          exactArea: (lamp.w * lamp.l) / 1000000,
+          exactArea,
           file: filePayload,
         };
       }));
@@ -1840,6 +1940,7 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure,
+        templateFile: templateFilePayload,
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -1853,7 +1954,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbxYdDxj0_0GR3wcr6XrMzZ_n_4Y9qdEUe1GYR2_aIFhpu3plugJ4cr0dhZCmnQtCmAlAQ/exec';
 
       try {
         const response = await fetch(apiUrl, {
