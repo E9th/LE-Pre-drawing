@@ -298,6 +298,7 @@ export default function App() {
   ]);
   const [plannerLampId, setPlannerLampId] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [logoDataUri, setLogoDataUri] = useState('');
 
   const [savedShapes, setSavedShapes] = useState<SavedShape[]>(() => {
     try {
@@ -330,6 +331,24 @@ export default function App() {
       setPlannerLampId(formLamps[0].id);
     }
   }, [formLamps, plannerLampId]);
+
+  React.useEffect(() => {
+    const loadLogo = async () => {
+      try {
+        const res = await fetch('/logo_LE.svg');
+        const svgText = await res.text();
+        const bytes = new TextEncoder().encode(svgText);
+        let binary = '';
+        bytes.forEach((b) => {
+          binary += String.fromCharCode(b);
+        });
+        setLogoDataUri(`data:image/svg+xml;base64,${window.btoa(binary)}`);
+      } catch (error) {
+        console.error('Failed to load logo SVG:', error);
+      }
+    };
+    loadLogo();
+  }, []);
 
   // Generate text path when text input changes
   const generateTextPath = useCallback(async () => {
@@ -848,7 +867,7 @@ Use Chain-of-Thought reasoning to:
   };
 
   const svgToPng = (svgString: string, width: number, height: number): Promise<string> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const img = new Image();
@@ -866,11 +885,15 @@ Use Chain-of-Thought reasoning to:
         }
         URL.revokeObjectURL(url);
       };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to render SVG image during export'));
+      };
       img.src = url;
     });
   };
 
-  const logoLEUrl = `${window.location.origin}/logo_LE.svg`;
+  const logoLEUrl = logoDataUri || `${window.location.origin}/logo_LE.svg`;
 
   const generateCoverPageSVG = (details: DocumentDetails) => {
     return `
@@ -1279,6 +1302,79 @@ Use Chain-of-Thought reasoning to:
     return [...merged, ...extras];
   }, [pages, formTemplatePages]);
 
+  const pricingSummary = useMemo(() => {
+    const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
+    const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + p.q, 0);
+    const moduleCost = totalModules * 21;
+    const fabricCost = totalAreaSqm <= 7 ? 12000 : totalAreaSqm * 1670;
+    const structureCost = totalAreaSqm <= 7 ? 22000 : totalAreaSqm * 5000;
+    const subtotalBeforeGP = fabricCost + structureCost + moduleCost;
+    const estimatedPrice = subtotalBeforeGP / 0.7;
+
+    return {
+      totalAreaSqm,
+      totalModules,
+      moduleCost,
+      fabricCost,
+      structureCost,
+      subtotalBeforeGP,
+      estimatedPrice,
+    };
+  }, [effectiveTemplatePages]);
+
+  const csvEscape = (value: string | number) => {
+    const str = String(value ?? '');
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+
+  const downloadPricingCSV = () => {
+    if (effectiveTemplatePages.length === 0) {
+      alert('ยังไม่มีรายการสำหรับสร้างตารางคำนวณ');
+      return;
+    }
+
+    const rows: Array<Array<string | number>> = [
+      ['Item', 'Shape Name', 'W (m)', 'L (m)', 'Qty (pcs)', 'Exact Area / Unit (sqm)', 'Total Area / Type (sqm)', 'Module Cost / Type (THB)'],
+    ];
+
+    effectiveTemplatePages.forEach((p, idx) => {
+      const totalAreaPerType = p.exactAreaSqm * p.q;
+      const moduleCostPerType = p.q * 21;
+      rows.push([
+        idx + 1,
+        p.name,
+        (p.bbW / 1000).toFixed(3),
+        (p.bbH / 1000).toFixed(3),
+        p.q,
+        p.exactAreaSqm.toFixed(4),
+        totalAreaPerType.toFixed(4),
+        moduleCostPerType.toFixed(2),
+      ]);
+    });
+
+    rows.push([]);
+    rows.push(['Summary', '', '', '', '', '', '', '']);
+    rows.push(['Total Area (sqm)', pricingSummary.totalAreaSqm.toFixed(4), '', '', '', '', '', '']);
+    rows.push(['Total Modules (pcs)', pricingSummary.totalModules, '', '', '', '', '', '']);
+    rows.push(['Fabric Cost (THB)', pricingSummary.fabricCost.toFixed(2), '', '', '', '', '', '']);
+    rows.push(['Structure Cost (THB)', pricingSummary.structureCost.toFixed(2), '', '', '', '', '', '']);
+    rows.push(['Module Cost @21 THB (THB)', pricingSummary.moduleCost.toFixed(2), '', '', '', '', '', '']);
+    rows.push(['Subtotal Before GP (THB)', pricingSummary.subtotalBeforeGP.toFixed(2), '', '', '', '', '', '']);
+    rows.push(['Estimated Price = Subtotal / 0.7 (THB)', pricingSummary.estimatedPrice.toFixed(2), '', '', '', '', '', '']);
+
+    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${docDetails.projectName || 'pricing'}_calculation_table.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const generateTemplatePDF = async () => {
     if (effectiveTemplatePages.length === 0) {
       alert("Please add at least one page to the template.");
@@ -1308,7 +1404,8 @@ Use Chain-of-Thought reasoning to:
       setShowTemplateSettings(false);
     } catch (error) {
       console.error("Failed to generate PDF:", error);
-      alert("Failed to generate PDF. Please try again.");
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`Failed to generate PDF. ${message}`);
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -1350,6 +1447,15 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure: structure,
+        pricingSummary: {
+          totalAreaSqm: pricingSummary.totalAreaSqm,
+          totalModules: pricingSummary.totalModules,
+          moduleCost: pricingSummary.moduleCost,
+          fabricCost: pricingSummary.fabricCost,
+          structureCost: pricingSummary.structureCost,
+          subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
+          estimatedPrice: pricingSummary.estimatedPrice,
+        },
         lamps: effectiveTemplatePages.map((p, index) => ({
           shapeName: p.name,
           w: (p.bbW / 1000).toFixed(2),
@@ -1541,6 +1647,15 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure,
+        pricingSummary: {
+          totalAreaSqm: pricingSummary.totalAreaSqm,
+          totalModules: pricingSummary.totalModules,
+          moduleCost: pricingSummary.moduleCost,
+          fabricCost: pricingSummary.fabricCost,
+          structureCost: pricingSummary.structureCost,
+          subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
+          estimatedPrice: pricingSummary.estimatedPrice,
+        },
         lamps,
       };
 
@@ -1660,6 +1775,25 @@ Use Chain-of-Thought reasoning to:
             </div>
 
             <div className="h-px bg-neutral-200" />
+
+            <div className="grid grid-cols-1 gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 md:grid-cols-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">พื้นที่รวม (ตร.ม.)</p>
+                <p className="text-lg font-bold text-emerald-900">{pricingSummary.totalAreaSqm.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">Module รวม (ชิ้น)</p>
+                <p className="text-lg font-bold text-emerald-900">{pricingSummary.totalModules}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">ต้นทุนก่อน GP (บาท)</p>
+                <p className="text-lg font-bold text-emerald-900">{pricingSummary.subtotalBeforeGP.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">ราคาประเมิน /0.7 (บาท)</p>
+                <p className="text-lg font-bold text-emerald-900">{pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</p>
+              </div>
+            </div>
 
             <div className="space-y-4">
               {formLamps.map((lamp, index) => {
@@ -1797,6 +1931,13 @@ Use Chain-of-Thought reasoning to:
                 className="rounded border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
               >
                 {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${effectiveTemplatePages.length})`}
+              </button>
+              <button
+                onClick={downloadPricingCSV}
+                disabled={effectiveTemplatePages.length === 0}
+                className="rounded border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                ดาวน์โหลดตารางคำนวณ (CSV)
               </button>
               <button
                 onClick={submitChecklistForm}
@@ -2578,6 +2719,13 @@ Use Chain-of-Thought reasoning to:
               
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowTemplateSettings(false)} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 rounded">Cancel</button>
+                <button
+                  onClick={downloadPricingCSV}
+                  disabled={effectiveTemplatePages.length === 0}
+                  className="px-4 py-2 text-sm font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded disabled:opacity-50"
+                >
+                  Download Calculation CSV
+                </button>
                 <button 
                   onClick={generateTemplatePDF} 
                   disabled={effectiveTemplatePages.length === 0 || isGeneratingPDF}
