@@ -1118,8 +1118,12 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const response = await fetch("https://script.google.com/macros/s/AKfycbxSwLzPzwZ59KiKZg6hRaWodWt360Eki3Vuqo_dd7LtDz3BpNFisD4CVhGpU-dt6e5YXw/exec", {
+      // ยิงข้อมูลไปหา Google Apps Script (URL ใหม่ล่าสุด + Header แบบ text/plain)
+      const response = await fetch("https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec", {
         method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
         body: JSON.stringify(payload)
       });
       
