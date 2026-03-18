@@ -1118,25 +1118,47 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      // ยิงข้อมูลไปหา Google Apps Script (URL ใหม่ล่าสุด + Header แบบ text/plain)
+      // ยิงข้อมูลไปหา Google Apps Script (ไม่ใส่ custom header เพื่อเลี่ยง preflight)
       const response = await fetch("https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec", {
         method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
         body: JSON.stringify(payload)
       });
-      
-      const result = await response.json();
-      if(result.status === "Success") {
+
+      // รองรับทั้ง JSON และ non-JSON response เพื่อ debug ปลายทางได้ง่ายขึ้น
+      const rawResponse = await response.text();
+      let apiResult: { status?: string; message?: string } = {};
+
+      if (rawResponse) {
+        try {
+          apiResult = JSON.parse(rawResponse);
+        } catch {
+          apiResult = {
+            status: "Error",
+            message: `Non-JSON response: ${rawResponse.slice(0, 240)}`,
+          };
+        }
+      }
+
+      if (!response.ok) {
+        const httpDebug = `HTTP ${response.status} ${response.statusText || ""}`.trim();
+        throw new Error(apiResult.message || httpDebug);
+      }
+
+      if(apiResult.status === "Success") {
         alert("✅ ประเมินราคาสำเร็จ! ระบบส่งข้อมูลและ PDF เข้า LINE เรียบร้อย");
         setShowTemplateSettings(false);
       } else {
-        alert("❌ เกิดข้อผิดพลาด: " + result.message);
+        alert("❌ เกิดข้อผิดพลาด: " + (apiResult.message || "Unknown server response"));
       }
     } catch (error) {
       console.error(error);
-      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ (อาจจะใช้เวลาโหลดนานเกินไป)");
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNetworkOrCors = /Failed to fetch|NetworkError|Load failed|CORS/i.test(errorMessage);
+      if (isNetworkOrCors) {
+        alert("❌ เชื่อมต่อ API ไม่สำเร็จ (อาจติด CORS/สิทธิ์ Web App)\nรายละเอียด: " + errorMessage);
+      } else {
+        alert("❌ เกิดข้อผิดพลาด: " + errorMessage);
+      }
     } finally {
       setIsSendingBOQ(false);
     }
