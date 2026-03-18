@@ -225,9 +225,24 @@ export default function App() {
     bbW: number;
     bbH: number;
     name: string;
+    q: number;
+    h: string;
+    d: string;
+    f: string;
+    t: string;
+    exactAreaSqm: number;
   }
   const [pages, setPages] = useState<PageData[]>([]);
   const [showTemplateSettings, setShowTemplateSettings] = useState(false);
+  // --- BOQ Form States ---
+  const [lampQ, setLampQ] = useState(1);
+  const [lampH, setLampH] = useState('3');
+  const [lampD, setLampD] = useState('15 เซนติเมตร (Standard)');
+  const [lampF, setLampF] = useState('ผ้าใบขาว');
+  const [lampLight, setLampLight] = useState('3000K');
+  const [structure, setStructure] = useState('ทำ');
+  const [aoName, setAoName] = useState('L&E Team');
+  const [isSendingBOQ, setIsSendingBOQ] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const [savedShapes, setSavedShapes] = useState<SavedShape[]>(() => {
@@ -978,6 +993,38 @@ Use Chain-of-Thought reasoning to:
     `;
   };
 
+  const calculateExactAreaSqm = () => {
+    let areaMm2 = 0;
+    if (shape === 'rectangle') areaMm2 = rectW * rectH;
+    else if (shape === 'circle') areaMm2 = Math.PI * Math.pow(circleD / 2, 2);
+    else if (shape === 'triangle') {
+      const s = (triA + triB + triC) / 2;
+      areaMm2 = Math.sqrt(s * (s - triA) * (s - triB) * (s - triC)) || 0;
+    }
+    else if (shape === 'donut') areaMm2 = Math.PI * (Math.pow(donutOuterD/2, 2) - Math.pow(donutInnerD/2, 2));
+    else if (shape === 'ellipse') areaMm2 = Math.PI * (ellipseW / 2) * (ellipseH / 2);
+    else if (shape === 'semicircle') areaMm2 = 0.5 * Math.PI * Math.pow(semicircleD / 2, 2);
+    else if (shape === 'u-shape') areaMm2 = (uW * uH) - ((uW - 2 * uT) * (uH - uT));
+    else if (shape === 'c-shape') areaMm2 = (cW * cH) - ((cW - cT) * (cH - 2 * cT));
+    else if (shape === 't-shape') areaMm2 = (tW * tT) + ((tH - tT) * tT);
+    else if (shape === 'hollow-rect') areaMm2 = (hRectW * hRectH) - ((hRectW - 2 * hRectT) * (hRectH - 2 * hRectT));
+    else if (shape === 'hexagon') areaMm2 = 0.75 * hexW * hexH;
+    else if (shape === 'octagon') areaMm2 = octW * octH - 2 * Math.pow(octW / (2 + Math.sqrt(2)), 2);
+    else if (shape === 'polygon') {
+      let sum = 0;
+      const pts = polygonPoints;
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % pts.length];
+        sum += (p1.x * p2.y) - (p2.x * p1.y);
+      }
+      areaMm2 = Math.abs(sum / 2);
+    } else {
+      areaMm2 = result.bbW * result.bbH; // Fallback for Custom/Text
+    }
+    return areaMm2 / 1000000; // แปลงตารางมิลลิเมตร เป็น ตารางเมตร
+  };
+
   const addToTemplate = () => {
     if (!svgRef.current) return;
     const svgClone = svgRef.current.cloneNode(true) as SVGSVGElement;
@@ -989,7 +1036,13 @@ Use Chain-of-Thought reasoning to:
       viewBox: viewBox,
       bbW: result.bbW,
       bbH: result.bbH,
-      name: `${shape} ${pages.length + 1}`
+      name: `${objectName} (${shape})`,
+      q: lampQ,
+      h: lampH,
+      d: lampD,
+      f: lampF,
+      t: lampLight,
+      exactAreaSqm: calculateExactAreaSqm()
     }]);
   };
 
@@ -1025,6 +1078,63 @@ Use Chain-of-Thought reasoning to:
       alert("Failed to generate PDF. Please try again.");
     } finally {
       setIsGeneratingPDF(false);
+    }
+  };
+
+  const sendToBOQ = async () => {
+    if (pages.length === 0) {
+      alert("Please add at least one page to the template.");
+      return;
+    }
+    setIsSendingBOQ(true);
+    try {
+      // สร้าง PDF
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const coverSvgString = generateCoverPageSVG(docDetails);
+      const coverImgData = await svgToPng(coverSvgString, 4200, 2970);
+      pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
+      
+      for (let i = 0; i < pages.length; i++) {
+        pdf.addPage('a3', 'landscape');
+        const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
+        const pageImgData = await svgToPng(pageSvgString, 4200, 2970);
+        pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
+      }
+      const pdfBase64 = pdf.output('datauristring');
+
+      // เตรียมข้อมูลยิง API
+      const payload = {
+        aoName: aoName,
+        projectName: docDetails.projectName,
+        location: docDetails.location,
+        structure: structure,
+        lamps: pages.map(p => ({
+          shapeName: p.name,
+          w: (p.bbW / 1000).toFixed(2),
+          l: (p.bbH / 1000).toFixed(2),
+          q: p.q, h: p.h, d: p.d, f: p.f, t: p.t,
+          exactArea: p.exactAreaSqm,
+          file: { mimeType: "application/pdf", data: pdfBase64, name: "Drawing.pdf" }
+        }))
+      };
+
+      const response = await fetch("https://script.google.com/macros/s/AKfycbxSwLzPzwZ59KiKZg6hRaWodWt360Eki3Vuqo_dd7LtDz3BpNFisD4CVhGpU-dt6e5YXw/exec", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      
+      const result = await response.json();
+      if(result.status === "Success") {
+        alert("✅ ประเมินราคาสำเร็จ! ระบบส่งข้อมูลและ PDF เข้า LINE เรียบร้อย");
+        setShowTemplateSettings(false);
+      } else {
+        alert("❌ เกิดข้อผิดพลาด: " + result.message);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ (อาจจะใช้เวลาโหลดนานเกินไป)");
+    } finally {
+      setIsSendingBOQ(false);
     }
   };
 
@@ -1449,6 +1559,43 @@ Use Chain-of-Thought reasoning to:
             </div>
           )}
 
+          <div className="space-y-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <label className="text-xs font-semibold uppercase tracking-wider text-blue-800">BOQ Setup (สำหรับโคมทรงนี้)</label>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Quantity (จำนวน)" value={lampQ} onChange={setLampQ} />
+              <TextInput label="Height (สูงหน้างาน ม.)" value={lampH} onChange={setLampH} />
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Depth (ความลึก)</label>
+                <select value={lampD} onChange={(e) => setLampD(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
+                  <option value="10 เซนติเมตร">10 เซนติเมตร</option>
+                  <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
+                  <option value="อื่นๆ">อื่นๆ</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Fabric (ผ้าใบ)</label>
+                  <select value={lampF} onChange={(e) => setLampF(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
+                    <option value="ผ้าใบขาว">ผ้าใบขาว</option>
+                    <option value="พิมพ์ลาย">พิมพ์ลาย</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Light Temp</label>
+                  <select value={lampLight} onChange={(e) => setLampLight(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
+                    <option value="3000K">3000K</option>
+                    <option value="4000K">4000K</option>
+                    <option value="6500K">6500K</option>
+                    <option value="Tunable White">Tunable White</option>
+                    <option value="RGBW">RGBW</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-3">
             <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Object Dimensions (mm)</label>
             {(shape === 'rectangle' || shape === 'custom') && (
@@ -1729,6 +1876,20 @@ Use Chain-of-Thought reasoning to:
             
             <div className="p-4 bg-neutral-50 border-t border-neutral-200">
               <div className="mb-4">
+                <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <h4 className="text-sm font-medium text-green-800 mb-3">BOQ Submission Data</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <TextInput label="AO / แผนก" value={aoName} onChange={setAoName} />
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-green-700 mb-1">ทำโครงสร้างส่วนกลางไหม?</label>
+                      <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-green-300 rounded bg-white">
+                        <option value="ทำ">ทำ</option>
+                        <option value="ไม่ทำ">ไม่ทำ</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <h4 className="text-sm font-medium text-neutral-700 mb-2">Pages in Template ({pages.length})</h4>
                 {pages.length === 0 ? (
                   <p className="text-xs text-neutral-500 italic">No pages added yet. Click "Add to Template" in the preview panel.</p>
@@ -1756,6 +1917,14 @@ Use Chain-of-Thought reasoning to:
                 >
                   {isGeneratingPDF ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
                   {isGeneratingPDF ? 'Generating...' : 'Generate Multi-page PDF'}
+                </button>
+                <button 
+                  onClick={sendToBOQ} 
+                  disabled={pages.length === 0 || isSendingBOQ}
+                  className="px-4 py-2 text-sm font-medium bg-green-600 text-white hover:bg-green-700 rounded disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSendingBOQ ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                  {isSendingBOQ ? 'กำลังประมวลผลและส่ง...' : 'Send to BOQ & LINE'}
                 </button>
               </div>
             </div>
