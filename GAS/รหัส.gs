@@ -69,20 +69,65 @@ function doPost(e) {
 
     var sheetId = "1MfbQTqNbsIkKe7l8BClj1YEkjb9aZO6oVCETqffYmhg";
     var ss = SpreadsheetApp.openById(sheetId);
-    var submissionsSheet = getOrCreateSheet_(ss, "Submissions", [
-      "timestamp", "submissionId", "aoName", "projectName", "location", "structure",
-      "lampCount", "totalAreaSqm", "totalModules", "moduleCost", "fabricCost", "structureCost",
-      "scaffoldCost", "subtotalBeforeGP", "estimatedPrice", "templateFileUrl", "templateFileStatus",
-      "templateFileName", "pricingSource", "rawPricingSummary"
+    var submissionsSheet = getOrCreateSheet_(ss, "สรุปรายการ", [
+      "วันเวลา",
+      "รหัสรายการ",
+      "AO/แผนก",
+      "โครงการ",
+      "สถานที่",
+      "โครงสร้างส่วนกลาง",
+      "จำนวนประเภทโคม",
+      "พื้นที่รวม (ตร.ม.)",
+      "Module รวม (ชิ้น)",
+      "ค่าผ้าใบ (บาท)",
+      "ค่าโครงสร้าง (บาท)",
+      "ค่านั่งร้าน (บาท)",
+      "ค่าจำนวน Module (บาท)",
+      "ต้นทุนก่อน GP (บาท)",
+      "ราคาประเมิน /0.7 (บาท)",
+      "ไฟล์ Template",
+      "สถานะไฟล์ Template",
+      "ไฟล์ CSV",
+      "สถานะไฟล์ CSV"
     ]);
-    var lampsSheet = getOrCreateSheet_(ss, "LampItems", [
-      "timestamp", "submissionId", "itemIndex", "shapeName", "objectShape", "w_m", "l_m", "qty",
-      "height_m", "depth", "fabric", "light", "moduleCountPerLamp", "totalModulesPerType",
-      "exactAreaPerLampSqm", "totalAreaPerTypeSqm", "lampFileUrl", "lampFileStatus", "lampFileName"
+    var lampsSheet = getOrCreateSheet_(ss, "รายละเอียดแต่ละโคม", [
+      "วันเวลา",
+      "รหัสรายการ",
+      "ลำดับ",
+      "ชื่อ Type",
+      "รูปทรง",
+      "กว้าง (มม.)",
+      "ยาว (มม.)",
+      "จำนวนโคม",
+      "สูงหน้างาน (ม.)",
+      "ความลึกโครง",
+      "ชนิดผ้า",
+      "อุณหภูมิแสง",
+      "Module ต่อโคม (ชิ้น)",
+      "Module รวม Type นี้ (ชิ้น)",
+      "พื้นที่ต่อโคม (ตร.ม.)",
+      "พื้นที่รวม Type นี้ (ตร.ม.)",
+      "ค่าผ้าใบ Type นี้ (บาท)",
+      "ค่าโครงสร้าง Type นี้ (บาท)",
+      "ค่านั่งร้าน Type นี้ (บาท)",
+      "ค่า Module Type นี้ (บาท)",
+      "ต้นทุนก่อน GP Type นี้ (บาท)",
+      "ราคาประเมิน /0.7 Type นี้ (บาท)",
+      "ไฟล์โคม",
+      "สถานะไฟล์โคม"
     ]);
-    var filesSheet = getOrCreateSheet_(ss, "Files", [
-      "timestamp", "submissionId", "scope", "itemIndex", "shapeName", "fileName", "mimeType",
-      "sizeBytes", "status", "fileUrl", "error"
+    var filesSheet = getOrCreateSheet_(ss, "ไฟล์แนบ", [
+      "วันเวลา",
+      "รหัสรายการ",
+      "ประเภทไฟล์",
+      "ลำดับโคม",
+      "ชื่อ Type",
+      "ชื่อไฟล์",
+      "ชนิดไฟล์",
+      "ขนาดไฟล์ (bytes)",
+      "สถานะ",
+      "ลิงก์ไฟล์",
+      "หมายเหตุ"
     ]);
 
     var folderId = "1chyuDE1Ib8hrRX42Q_T-q6SRM4Muk2YF";
@@ -91,6 +136,7 @@ function doPost(e) {
     var timestamp = new Date();
     var submissionId = Utilities.getUuid();
     var lamps = data.lamps || [];
+    var lampDetails = [];
     var lampsText = "";
 
     var totalAreaFromLamps = 0;
@@ -103,10 +149,16 @@ function doPost(e) {
       (data.projectName || "template") + "_Drawing.pdf"
     );
 
+    var csvUpload = uploadBase64File_(
+      folder,
+      data.csvFile,
+      (data.projectName || "pricing") + "_Pricing_Report.csv"
+    );
+
     filesSheet.appendRow([
       timestamp,
       submissionId,
-      "TEMPLATE",
+      "Template Drawing",
       "",
       "",
       templateUpload.fileName,
@@ -115,6 +167,20 @@ function doPost(e) {
       templateUpload.status,
       templateUpload.url,
       templateUpload.error
+    ]);
+
+    filesSheet.appendRow([
+      timestamp,
+      submissionId,
+      "Pricing CSV",
+      "",
+      "",
+      csvUpload.fileName,
+      csvUpload.mimeType,
+      csvUpload.sizeBytes,
+      csvUpload.status,
+      csvUpload.url,
+      csvUpload.error
     ]);
 
     for (var i = 0; i < lamps.length; i++) {
@@ -137,7 +203,7 @@ function doPost(e) {
       filesSheet.appendRow([
         timestamp,
         submissionId,
-        "LAMP",
+        "โคม",
         i + 1,
         lamp.shapeName || "",
         lampUpload.fileName,
@@ -148,35 +214,23 @@ function doPost(e) {
         lampUpload.error
       ]);
 
-      lampsSheet.appendRow([
-        timestamp,
-        submissionId,
-        i + 1,
-        lamp.shapeName || "",
-        lamp.objectShape || "",
-        lamp.w || "",
-        lamp.l || "",
-        qty,
-        lamp.h || "",
-        lamp.d || "",
-        lamp.f || "",
-        lamp.t || "",
-        modulesPerLamp,
-        totalLampModules,
-        area,
-        totalLampArea,
-        lampUpload.url,
-        lampUpload.status,
-        lampUpload.fileName
-      ]);
-
-      lampsText += "🔸 Shape: " + (lamp.shapeName || "-") + " (" + qty + " โคม)\n" +
-        "✅ พื้นที่จริงต่อโคม: " + area.toFixed(2) + " ตรม.\n" +
-        "รวมพื้นที่ Type นี้: " + totalLampArea.toFixed(2) + " ตรม.\n" +
-        "จำนวนโมดูลรวม Type นี้: " + totalLampModules + " ชิ้น\n" +
-        "- สูง: " + (lamp.h || "-") + " ม. | ลึก: " + (lamp.d || "-") + "\n" +
-        "- ผ้าใบ: " + (lamp.f || "-") + " | แสง: " + (lamp.t || "-") + "\n" +
-        "- ไฟล์โคม: " + lampUpload.url + "\n\n";
+      lampDetails.push({
+        index: i + 1,
+        shapeName: lamp.shapeName || "-",
+        objectShape: lamp.objectShape || "",
+        widthM: lamp.w || "",
+        lengthM: lamp.l || "",
+        qty: qty,
+        h: lamp.h || "",
+        d: lamp.d || "",
+        f: lamp.f || "",
+        t: lamp.t || "",
+        areaPerLamp: area,
+        totalAreaPerType: totalLampArea,
+        modulesPerLamp: modulesPerLamp,
+        totalModulesPerType: totalLampModules,
+        lampUpload: lampUpload,
+      });
     }
 
     var pricing = data.pricingSummary || {};
@@ -194,6 +248,54 @@ function doPost(e) {
     var scaffoldCost = hasPricingSummary ? Number(pricing.scaffoldCost || 0) : 0;
     var subtotalBeforeGP = hasPricingSummary ? Number(pricing.subtotalBeforeGP) : moduleCost + fabricCost + structureCost + scaffoldCost;
     var estimatedPrice = hasPricingSummary ? Number(pricing.estimatedPrice) : subtotalBeforeGP;
+
+    // กระจายราคาไปแต่ละ Type ตามสัดส่วนพื้นที่ (ส่วน module ใช้จำนวนจริงต่อ Type)
+    var areaDenominator = finalArea > 0 ? finalArea : 1;
+    for (var j = 0; j < lampDetails.length; j++) {
+      var item = lampDetails[j];
+      var areaRatio = item.totalAreaPerType / areaDenominator;
+      var fabricPerType = fabricCost * areaRatio;
+      var structurePerType = structureCost * areaRatio;
+      var scaffoldPerType = scaffoldCost * areaRatio;
+      var modulePerType = item.totalModulesPerType * 21;
+      var subtotalPerType = fabricPerType + structurePerType + scaffoldPerType + modulePerType;
+      var estimatePerType = subtotalPerType / 0.7;
+
+      lampsSheet.appendRow([
+        timestamp,
+        submissionId,
+        item.index,
+        item.shapeName,
+        item.objectShape,
+        item.widthM,
+        item.lengthM,
+        item.qty,
+        item.h,
+        item.d,
+        item.f,
+        item.t,
+        item.modulesPerLamp,
+        item.totalModulesPerType,
+        item.areaPerLamp,
+        item.totalAreaPerType,
+        Math.round(fabricPerType * 100) / 100,
+        Math.round(structurePerType * 100) / 100,
+        Math.round(scaffoldPerType * 100) / 100,
+        Math.round(modulePerType * 100) / 100,
+        Math.round(subtotalPerType * 100) / 100,
+        Math.round(estimatePerType * 100) / 100,
+        item.lampUpload.url,
+        item.lampUpload.status
+      ]);
+
+      lampsText +=
+        j + 1 + ") " + item.shapeName + " | " + item.qty + " โคม\n" +
+        "   พื้นที่รวม: " + item.totalAreaPerType.toFixed(2) + " ตร.ม. | Module: " + item.totalModulesPerType + " ชิ้น\n" +
+        "   ต้นทุนก่อน GP: " + subtotalPerType.toLocaleString("th-TH", { style: "currency", currency: "THB" }) + "\n" +
+        "   ราคาประเมิน /0.7: " + estimatePerType.toLocaleString("th-TH", { style: "currency", currency: "THB" }) + "\n" +
+        "   สูง " + item.h + " ม. | ลึก " + item.d + " | ผ้า " + item.f + " | แสง " + item.t + "\n" +
+        "   ไฟล์โคม: " + item.lampUpload.url + "\n\n";
+    }
 
     submissionsSheet.appendRow([
       timestamp,
@@ -213,9 +315,8 @@ function doPost(e) {
       estimatedPrice,
       templateUpload.url,
       templateUpload.status,
-      templateUpload.fileName,
-      hasPricingSummary ? "frontend-pricingSummary" : "fallback-from-lamps",
-      JSON.stringify(pricing)
+      csvUpload.url,
+      csvUpload.status
     ]);
 
     var formattedPrice = estimatedPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" });
@@ -224,20 +325,23 @@ function doPost(e) {
     var formattedSubtotal = subtotalBeforeGP.toLocaleString("th-TH", { style: "currency", currency: "THB" });
 
     var message =
-      "📋 มีการประเมินราคาหน้างานใหม่ (คำนวณพื้นที่จริง)\n\n" +
-      "🆔 Submission: " + submissionId + "\n" +
+      "📋 สรุปประเมินราคาหน้างาน\n" +
+      "────────────────\n" +
+      "🆔 รหัสรายการ: " + submissionId + "\n" +
       "👤 AO/แผนก: " + (data.aoName || "-") + "\n" +
       "🏢 Project: " + (data.projectName || "-") + "\n" +
       "📍 สถานที่: " + (data.location || "-") + "\n" +
       "🏗️ โครงสร้างส่วนกลาง: " + (data.structure || "-") + "\n" +
       "📄 Template Drawing: " + templateUpload.url + "\n" +
-      "------------------------\n" +
-      "📝 รายละเอียดโคมแยกตาม Type:\n\n" + lampsText +
-      "------------------------\n" +
-      "📌 สรุปพื้นที่รวม (Exact Area): " + formattedArea + " ตรม.\n" +
-      "🔢 Module รวม: " + formattedModules + " ชิ้น\n" +
-      "🧮 ต้นทุนก่อน GP: " + formattedSubtotal + "\n" +
-      "💰 ประเมินราคาเบื้องต้น: " + formattedPrice;
+      "🧾 Pricing CSV: " + csvUpload.url + "\n" +
+      "────────────────\n" +
+      "📌 สรุปรวม\n" +
+      "• พื้นที่รวม: " + formattedArea + " ตร.ม.\n" +
+      "• Module รวม: " + formattedModules + " ชิ้น\n" +
+      "• ต้นทุนก่อน GP: " + formattedSubtotal + "\n" +
+      "• ราคาประเมิน /0.7: " + formattedPrice + "\n" +
+      "────────────────\n" +
+      "📝 แยกตาม Type\n\n" + lampsText;
 
     var url = "https://api.line.me/v2/bot/message/push";
     UrlFetchApp.fetch(url, {

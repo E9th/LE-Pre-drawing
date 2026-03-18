@@ -293,6 +293,7 @@ export default function App() {
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
   const [isDataConfirmed, setIsDataConfirmed] = useState(false);
   const [appView, setAppView] = useState<AppView>('form');
+  const [pricingView, setPricingView] = useState<'summary' | 'type'>('summary');
   const [isSubmittingChecklist, setIsSubmittingChecklist] = useState(false);
   const [formLamps, setFormLamps] = useState<FormLampItem[]>([
     {
@@ -1513,11 +1514,111 @@ Use Chain-of-Thought reasoning to:
     };
   }, [effectiveTemplatePages]);
 
+  const pricingByType = useMemo(() => {
+    const areaDenominator = pricingSummary.totalAreaSqm > 0 ? pricingSummary.totalAreaSqm : 1;
+
+    return effectiveTemplatePages.map((p, idx) => {
+      const totalModulesPerType = Math.max(1, p.moduleCount) * p.q;
+      const totalAreaPerType = p.exactAreaSqm * p.q;
+      const areaRatio = totalAreaPerType / areaDenominator;
+
+      const fabricCostPerType = pricingSummary.fabricCost * areaRatio;
+      const structureCostPerType = pricingSummary.structureCost * areaRatio;
+      const scaffoldCostPerType = pricingSummary.scaffoldCost * areaRatio;
+      const moduleCostPerType = totalModulesPerType * 21;
+      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + scaffoldCostPerType + moduleCostPerType;
+      const estimatedPricePerType = subtotalBeforeGPPerType / 0.7;
+
+      return {
+        id: p.id,
+        index: idx + 1,
+        name: p.name,
+        q: p.q,
+        totalAreaPerType,
+        totalModulesPerType,
+        fabricCostPerType,
+        structureCostPerType,
+        scaffoldCostPerType,
+        moduleCostPerType,
+        subtotalBeforeGPPerType,
+        estimatedPricePerType,
+      };
+    });
+  }, [effectiveTemplatePages, pricingSummary]);
+
   const csvEscape = (value: string | number) => {
     const str = String(value ?? '');
     if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
     return str;
   };
+
+  const buildPricingCsvText = useCallback(() => {
+    const generatedAt = new Date().toLocaleString('th-TH');
+    const rows: Array<Array<string | number>> = [
+      ['L&E Preliminary Pricing Report'],
+      ['Generated At', generatedAt],
+      ['Project Name', docDetails.projectName || '-'],
+      ['Project Number', docDetails.projectNumber || '-'],
+      ['Location', docDetails.location || '-'],
+      ['AO / Team', aoName || '-'],
+      ['Structure', structure || '-'],
+      [],
+      ['Summary'],
+      ['Total Area (sqm)', pricingSummary.totalAreaSqm.toFixed(4)],
+      ['Total Modules (pcs)', pricingSummary.totalModules],
+      ['Fabric Cost (THB)', pricingSummary.fabricCost.toFixed(2)],
+      ['Structure Cost (THB)', pricingSummary.structureCost.toFixed(2)],
+      ['Scaffolding Cost (THB)', pricingSummary.scaffoldCost.toFixed(2)],
+      ['Module Cost @ 21 THB (THB)', pricingSummary.moduleCost.toFixed(2)],
+      ['Subtotal Before GP (THB)', pricingSummary.subtotalBeforeGP.toFixed(2)],
+      ['Estimated Price = Subtotal / 0.7 (THB)', pricingSummary.estimatedPrice.toFixed(2)],
+      [],
+      ['By Type'],
+      [
+        'No.',
+        'Type Name',
+        'Qty (pcs)',
+        'Total Area (sqm)',
+        'Total Modules (pcs)',
+        'Fabric Cost (THB)',
+        'Structure Cost (THB)',
+        'Scaffolding Cost (THB)',
+        'Module Cost (THB)',
+        'Subtotal Before GP (THB)',
+        'Estimated Price / Type (THB)'
+      ],
+    ];
+
+    pricingByType.forEach((item) => {
+      rows.push([
+        item.index,
+        item.name,
+        item.q,
+        item.totalAreaPerType.toFixed(4),
+        item.totalModulesPerType,
+        item.fabricCostPerType.toFixed(2),
+        item.structureCostPerType.toFixed(2),
+        item.scaffoldCostPerType.toFixed(2),
+        item.moduleCostPerType.toFixed(2),
+        item.subtotalBeforeGPPerType.toFixed(2),
+        item.estimatedPricePerType.toFixed(2),
+      ]);
+    });
+
+    rows.push([]);
+    rows.push(['Note']);
+    rows.push(['Per-type area-based allocation uses total area ratio for fabric/structure/scaffold, and actual module count for module cost.']);
+
+    return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+  }, [
+    docDetails.projectName,
+    docDetails.projectNumber,
+    docDetails.location,
+    aoName,
+    structure,
+    pricingSummary,
+    pricingByType,
+  ]);
 
   const downloadPricingCSV = () => {
     if (effectiveTemplatePages.length === 0) {
@@ -1525,46 +1626,12 @@ Use Chain-of-Thought reasoning to:
       return;
     }
 
-    const rows: Array<Array<string | number>> = [
-      ['Item', 'Shape Name', 'W (m)', 'L (m)', 'Qty (pcs)', 'Modules / Lamp (pcs)', 'Total Modules / Type (pcs)', 'Exact Area / Unit (sqm)', 'Total Area / Type (sqm)', 'Module Cost / Type (THB)'],
-    ];
-
-    effectiveTemplatePages.forEach((p, idx) => {
-      const modulesPerLamp = Math.max(1, p.moduleCount);
-      const totalModulesPerType = modulesPerLamp * p.q;
-      const totalAreaPerType = p.exactAreaSqm * p.q;
-      const moduleCostPerType = totalModulesPerType * 21;
-      rows.push([
-        idx + 1,
-        p.name,
-        (p.bbW / 1000).toFixed(3),
-        (p.bbH / 1000).toFixed(3),
-        p.q,
-        modulesPerLamp,
-        totalModulesPerType,
-        p.exactAreaSqm.toFixed(4),
-        totalAreaPerType.toFixed(4),
-        moduleCostPerType.toFixed(2),
-      ]);
-    });
-
-    rows.push([]);
-    rows.push(['Summary', '', '', '', '', '', '', '']);
-    rows.push(['Total Area (sqm)', pricingSummary.totalAreaSqm.toFixed(4), '', '', '', '', '', '']);
-    rows.push(['Total Modules (pcs)', pricingSummary.totalModules, '', '', '', '', '', '']);
-    rows.push(['Fabric Cost (THB)', pricingSummary.fabricCost.toFixed(2), '', '', '', '', '', '']);
-    rows.push(['Structure Cost (THB)', pricingSummary.structureCost.toFixed(2), '', '', '', '', '', '']);
-    rows.push(['Scaffolding Cost (THB)', pricingSummary.scaffoldCost.toFixed(2), '', '', '', '', '', '']);
-    rows.push(['Module Cost @21 THB (THB)', pricingSummary.moduleCost.toFixed(2), '', '', '', '', '', '']);
-    rows.push(['Subtotal Before GP (THB)', pricingSummary.subtotalBeforeGP.toFixed(2), '', '', '', '', '', '']);
-    rows.push(['Estimated Price = Subtotal / 0.7 (THB)', pricingSummary.estimatedPrice.toFixed(2), '', '', '', '', '', '']);
-
-    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+    const csv = buildPricingCsvText();
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${docDetails.projectName || 'pricing'}_calculation_table.csv`;
+    link.download = `${docDetails.projectName || 'pricing'}_Pricing_Report.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1662,7 +1729,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbxYdDxj0_0GR3wcr6XrMzZ_n_4Y9qdEUe1GYR2_aIFhpu3plugJ4cr0dhZCmnQtCmAlAQ/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbzoGeeAs2_EyPj6KB93d6ZBpZQ8jDB5B878ayAZBCXfp3a3bQwoHrsniFfefC4WI22fBA/exec";
 
       try {
         // ยิงแบบปกติก่อน (อ่านผลตอบกลับได้)
@@ -1883,6 +1950,7 @@ Use Chain-of-Thought reasoning to:
     try {
       let templatePdfBase64: string | null = null;
       let templateFilePayload: { mimeType: string; data: string; name: string } | null = null;
+      let csvFilePayload: { mimeType: string; data: string; name: string } | null = null;
       if (effectiveTemplatePages.length > 0) {
         const templatePdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
         const templatePdfDataUri = templatePdf.output('datauristring');
@@ -1895,6 +1963,18 @@ Use Chain-of-Thought reasoning to:
           };
         }
       }
+
+      const csvText = buildPricingCsvText();
+      const csvBytes = new TextEncoder().encode(csvText);
+      let csvBinary = '';
+      csvBytes.forEach((b) => {
+        csvBinary += String.fromCharCode(b);
+      });
+      csvFilePayload = {
+        mimeType: 'text/csv;charset=utf-8',
+        data: window.btoa(csvBinary),
+        name: `${docDetails.projectName || 'pricing'}_Pricing_Report.csv`,
+      };
 
       const pageById = new Map<string, PageData>(effectiveTemplatePages.map((p) => [p.id, p]));
 
@@ -1941,6 +2021,7 @@ Use Chain-of-Thought reasoning to:
         location: docDetails.location,
         structure,
         templateFile: templateFilePayload,
+        csvFile: csvFilePayload,
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -1954,7 +2035,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbxYdDxj0_0GR3wcr6XrMzZ_n_4Y9qdEUe1GYR2_aIFhpu3plugJ4cr0dhZCmnQtCmAlAQ/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbzoGeeAs2_EyPj6KB93d6ZBpZQ8jDB5B878ayAZBCXfp3a3bQwoHrsniFfefC4WI22fBA/exec';
 
       try {
         const response = await fetch(apiUrl, {
@@ -2098,6 +2179,53 @@ Use Chain-of-Thought reasoning to:
               </div>
             </div>
             <p className="text-xs text-emerald-800">ค่านั่งร้านทีมช่าง: {pricingSummary.scaffoldCost > 0 ? `${pricingSummary.scaffoldCost.toLocaleString('th-TH')} บาท (ความสูงหน้างาน >= 3 ม.)` : '0 บาท'}</p>
+
+            <div className="inline-flex rounded-lg border border-cyan-200 bg-white p-1">
+              <button
+                onClick={() => setPricingView('summary')}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'summary' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
+              >
+                มุมมองสรุป
+              </button>
+              <button
+                onClick={() => setPricingView('type')}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'type' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
+              >
+                มุมมองแยก Type
+              </button>
+            </div>
+
+            {pricingView === 'type' && pricingByType.length > 0 && (
+              <details className="rounded-lg border border-cyan-200 bg-cyan-50" open>
+                <summary className="cursor-pointer list-none p-3 text-sm font-semibold text-cyan-800">ประเมินราคาแยกแต่ละ Type ({pricingByType.length})</summary>
+                <div className="overflow-x-auto px-3 pb-3">
+                  <table className="min-w-full text-xs text-neutral-800">
+                    <thead>
+                      <tr className="border-b border-cyan-200 text-cyan-900">
+                        <th className="py-2 pr-3 text-left">Type</th>
+                        <th className="py-2 pr-3 text-right">จำนวน</th>
+                        <th className="py-2 pr-3 text-right">พื้นที่รวม</th>
+                        <th className="py-2 pr-3 text-right">Module รวม</th>
+                        <th className="py-2 pr-3 text-right">ต้นทุนก่อน GP</th>
+                        <th className="py-2 text-right">ราคาประเมิน /0.7</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricingByType.map((item) => (
+                        <tr key={item.id} className="border-b border-cyan-100 last:border-0">
+                          <td className="py-2 pr-3">{item.index}. {item.name}</td>
+                          <td className="py-2 pr-3 text-right">{item.q}</td>
+                          <td className="py-2 pr-3 text-right">{item.totalAreaPerType.toFixed(2)} ตร.ม.</td>
+                          <td className="py-2 pr-3 text-right">{item.totalModulesPerType.toLocaleString('th-TH')}</td>
+                          <td className="py-2 pr-3 text-right">{item.subtotalBeforeGPPerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 text-right font-semibold text-cyan-900">{item.estimatedPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
 
             <div className="space-y-4">
               {formLamps.map((lamp, index) => {
@@ -3067,6 +3195,23 @@ Use Chain-of-Thought reasoning to:
                     <div className="text-emerald-800 font-semibold">Estimated Price = Subtotal / 0.7</div>
                     <div className="text-right text-emerald-800 font-bold">{pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
                   </div>
+                  {pricingView === 'type' && pricingByType.length > 0 && (
+                    <div className="border-t border-emerald-200 px-3 pb-3 pt-3">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-700">By Type</p>
+                      <div className="space-y-2">
+                        {pricingByType.map((item) => (
+                          <div key={`modal-${item.id}`} className="rounded border border-emerald-200 bg-white px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-semibold text-neutral-800">{item.index}. {item.name}</span>
+                              <span className="font-semibold text-emerald-800">{item.estimatedPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท</span>
+                            </div>
+                            <div className="mt-1 text-neutral-600">จำนวน {item.q} | พื้นที่ {item.totalAreaPerType.toFixed(2)} ตร.ม. | Module {item.totalModulesPerType.toLocaleString('th-TH')}</div>
+                            <div className="text-neutral-600">ต้นทุนก่อน GP {item.subtotalBeforeGPPerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </details>
 
                 <h4 className="text-sm font-medium text-neutral-700 mb-2">Pages in Template ({effectiveTemplatePages.length})</h4>
