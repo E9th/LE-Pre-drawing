@@ -56,6 +56,13 @@ const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
   { value: 'custom', label: 'AI Custom (กำหนดเอง)' },
 ];
 
+const parseHeightMeters = (value: string): number => {
+  const match = String(value ?? '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const Input = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
@@ -1365,13 +1372,38 @@ Use Chain-of-Thought reasoning to:
     return [...withPlannerDraft, ...extras];
   }, [pages, formTemplatePages, plannerDraftPage]);
 
+  React.useEffect(() => {
+    if (!plannerDraftPage) return;
+    setPages((prev) => {
+      const idx = prev.findIndex((p) => p.id === plannerDraftPage.id);
+      if (idx < 0) return [...prev, plannerDraftPage];
+      const current = prev[idx];
+      const unchanged =
+        current.svgContent === plannerDraftPage.svgContent &&
+        current.viewBox === plannerDraftPage.viewBox &&
+        current.bbW === plannerDraftPage.bbW &&
+        current.bbH === plannerDraftPage.bbH &&
+        current.moduleCount === plannerDraftPage.moduleCount &&
+        current.name === plannerDraftPage.name &&
+        current.q === plannerDraftPage.q &&
+        current.h === plannerDraftPage.h &&
+        current.d === plannerDraftPage.d &&
+        current.f === plannerDraftPage.f &&
+        current.t === plannerDraftPage.t;
+      if (unchanged) return prev;
+      const clone = [...prev];
+      clone[idx] = plannerDraftPage;
+      return clone;
+    });
+  }, [plannerDraftPage]);
+
   const pricingSummary = useMemo(() => {
     const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
     const moduleCost = totalModules * 21;
     const fabricCost = totalAreaSqm <= 7 ? 12000 : totalAreaSqm * 1670;
     const structureCost = totalAreaSqm <= 7 ? 22000 : totalAreaSqm * 5000;
-    const requiresScaffold = effectiveTemplatePages.some((p) => Number(p.h) >= 3);
+    const requiresScaffold = effectiveTemplatePages.some((p) => parseHeightMeters(p.h) >= 3);
     const scaffoldCost = requiresScaffold ? 8000 : 0;
     const subtotalBeforeGP = fabricCost + structureCost + moduleCost + scaffoldCost;
     const estimatedPrice = subtotalBeforeGP / 0.7;
@@ -1446,6 +1478,32 @@ Use Chain-of-Thought reasoning to:
     URL.revokeObjectURL(url);
   };
 
+  const renderTemplatePdf = async (targetPages: PageData[], exportWidth: number, exportHeight: number) => {
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a3'
+    });
+
+    const coverSvgString = generateCoverPageSVG(docDetails);
+    const pageSvgStrings = targetPages.map((page, idx) =>
+      generateDrawingPageSVG(docDetails, page, idx + 1, targetPages.length)
+    );
+
+    const images = await Promise.all([
+      svgToPng(coverSvgString, exportWidth, exportHeight),
+      ...pageSvgStrings.map((svg) => svgToPng(svg, exportWidth, exportHeight)),
+    ]);
+
+    pdf.addImage(images[0], 'PNG', 0, 0, 420, 297);
+    for (let i = 1; i < images.length; i++) {
+      pdf.addPage('a3', 'landscape');
+      pdf.addImage(images[i], 'PNG', 0, 0, 420, 297);
+    }
+
+    return pdf;
+  };
+
   const generateTemplatePDF = async () => {
     if (effectiveTemplatePages.length === 0) {
       alert("Please add at least one page to the template.");
@@ -1454,22 +1512,7 @@ Use Chain-of-Thought reasoning to:
     
     setIsGeneratingPDF(true);
     try {
-      const pdf = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: 'a3'
-      });
-      
-      const coverSvgString = generateCoverPageSVG(docDetails);
-      const coverImgData = await svgToPng(coverSvgString, TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
-      pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
-      
-      for (let i = 0; i < effectiveTemplatePages.length; i++) {
-        pdf.addPage('a3', 'landscape');
-        const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
-        const pageImgData = await svgToPng(pageSvgString, TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
-        pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
-      }
+      const pdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
       
       pdf.save(`${docDetails.projectName || 'template'}.pdf`);
       setShowTemplateSettings(false);
@@ -1489,21 +1532,7 @@ Use Chain-of-Thought reasoning to:
     }
     setIsSendingBOQ(true);
     try {
-      const exportWidthPx = TEMPLATE_API_WIDTH;
-      const exportHeightPx = TEMPLATE_API_HEIGHT;
-
-      // สร้าง PDF
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const coverSvgString = generateCoverPageSVG(docDetails);
-      const coverImgData = await svgToPng(coverSvgString, exportWidthPx, exportHeightPx);
-      pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
-      
-      for (let i = 0; i < effectiveTemplatePages.length; i++) {
-        pdf.addPage('a3', 'landscape');
-        const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
-        const pageImgData = await svgToPng(pageSvgString, exportWidthPx, exportHeightPx);
-        pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
-      }
+      const pdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
       const pdfDataUri = pdf.output('datauristring');
       const pdfBase64 = pdfDataUri.includes(',') ? pdfDataUri.split(',')[1] : pdfDataUri;
       const approxPdfSizeMB = (pdfBase64.length * 0.75) / (1024 * 1024);
@@ -1640,7 +1669,7 @@ Use Chain-of-Thought reasoning to:
     const missing: string[] = [];
     if (!lamp.shapeName.trim()) missing.push('Type');
     if (!lamp.objectShape) missing.push('Object Shape');
-    if (!lamp.h.trim() || Number.isNaN(Number(lamp.h)) || Number(lamp.h) <= 0) missing.push('ความสูงหน้างาน (ม.)');
+    if (!lamp.h.trim() || parseHeightMeters(lamp.h) <= 0) missing.push('ความสูงหน้างาน (ม.)');
     if (!Number.isFinite(lamp.w) || lamp.w <= 0) missing.push('กว้าง (มม.)');
     if (!Number.isFinite(lamp.l) || lamp.l <= 0) missing.push('ยาว (มม.)');
     if (lamp.objectShape === 'donut') {
@@ -1671,17 +1700,7 @@ Use Chain-of-Thought reasoning to:
     try {
       let templatePdfBase64: string | null = null;
       if (effectiveTemplatePages.length > 0) {
-        const templatePdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-        const coverSvgString = generateCoverPageSVG(docDetails);
-        const coverImgData = await svgToPng(coverSvgString, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
-        templatePdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
-
-        for (let i = 0; i < effectiveTemplatePages.length; i++) {
-          templatePdf.addPage('a3', 'landscape');
-          const pageSvgString = generateDrawingPageSVG(docDetails, effectiveTemplatePages[i], i + 1, effectiveTemplatePages.length);
-          const pageImgData = await svgToPng(pageSvgString, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
-          templatePdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
-        }
+        const templatePdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
         const templatePdfDataUri = templatePdf.output('datauristring');
         templatePdfBase64 = templatePdfDataUri.includes(',') ? templatePdfDataUri.split(',')[1] : templatePdfDataUri;
       }
@@ -1825,6 +1844,12 @@ Use Chain-of-Thought reasoning to:
   // Calculate polygon canvas viewBox based on zoom
   const polygonViewBoxWidth = 600 / polygonCanvasZoom;
   const polygonViewBoxHeight = 400 / polygonCanvasZoom;
+  const isGlobalBusy = isSendingBOQ || isSubmittingChecklist || isGeneratingPDF;
+  const globalBusyText = isSendingBOQ
+    ? 'กำลังประมวลผลและส่งข้อมูลไป BOQ...'
+    : isSubmittingChecklist
+      ? 'กำลังยืนยันข้อมูลและอัปโหลด...'
+      : 'กำลังสร้างไฟล์เอกสาร...';
 
   if (appView === 'form') {
     return (
@@ -2068,6 +2093,17 @@ Use Chain-of-Thought reasoning to:
             </div>
           </div>
         </div>
+        {isGlobalBusy && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
+            <div className="rounded-xl bg-white px-6 py-5 shadow-xl flex items-center gap-3">
+              <Loader2 size={22} className="animate-spin text-blue-600" />
+              <div>
+                <p className="text-sm font-semibold text-neutral-900">กรุณารอสักครู่</p>
+                <p className="text-xs text-neutral-600">{globalBusyText}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2893,6 +2929,17 @@ Use Chain-of-Thought reasoning to:
                   {isSendingBOQ ? 'กำลังประมวลผลและส่ง...' : 'Send to BOQ & LINE'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {isGlobalBusy && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
+          <div className="rounded-xl bg-white px-6 py-5 shadow-xl flex items-center gap-3">
+            <Loader2 size={22} className="animate-spin text-blue-600" />
+            <div>
+              <p className="text-sm font-semibold text-neutral-900">กรุณารอสักครู่</p>
+              <p className="text-xs text-neutral-600">{globalBusyText}</p>
             </div>
           </div>
         </div>
