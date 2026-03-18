@@ -1335,18 +1335,77 @@ Use Chain-of-Thought reasoning to:
     if (appView !== 'planner' || !plannerLampId) return null;
     const moduleRects = result.modules.map((mod) => `
       <g transform="translate(${mod.x}, ${mod.y})">
-        <rect width="${mod.w}" height="${mod.h}" fill="rgba(37,99,235,0.28)" stroke="#1d4ed8" stroke-width="2" />
-        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="2.4" fill="#1d4ed8" />
+        <rect width="${mod.w}" height="${mod.h}" fill="rgba(59, 130, 246, 0.15)" stroke="#2563eb" stroke-width="${dynamicStrokeWidth}" />
+        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="${dynamicStrokeWidth * 1.5}" fill="#2563eb" />
       </g>
     `).join('');
 
-    const pathMarkup = shape === 'custom' && customPath
-      ? `<path d="${result.shapePath}" transform="scale(${result.bbW / 100}, ${result.bbH / 100})" fill="white" stroke="#525252" stroke-width="2" vector-effect="non-scaling-stroke" />`
-      : `<path d="${result.shapePath}" fill="white" stroke="#525252" stroke-width="2" />`;
+    const shapeMarkup = shape === 'custom' && customPath
+      ? `<path d="${result.shapePath}" transform="scale(${result.bbW / 100}, ${result.bbH / 100})" fill="white" stroke="#525252" stroke-width="${dynamicStrokeWidth * 2}" vector-effect="non-scaling-stroke" />`
+      : shape === 'text' && textPath
+        ? `<path d="${result.shapePath}" fill="white" stroke="#525252" stroke-width="${dynamicStrokeWidth * 2}" />`
+        : `<path d="${result.shapePath}" fill="white" stroke="#525252" stroke-width="${dynamicStrokeWidth * 2}" />`;
+
+    const dimensionMarkup = `
+      <g style="font-size: ${dynamicFontSize}px" class="font-mono fill-neutral-600" stroke="none">
+        <line x1="0" y1="${-offset}" x2="${result.bbW}" y2="${-offset}" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <line x1="0" y1="${-offset - tickSize}" x2="0" y2="${-tickSize}" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <line x1="${result.bbW}" y1="${-offset - tickSize}" x2="${result.bbW}" y2="${-tickSize}" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <path d="M ${arrowSize} ${-offset - arrowSize / 2} L 0 ${-offset} L ${arrowSize} ${-offset + arrowSize / 2}" fill="none" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <path d="M ${result.bbW - arrowSize} ${-offset - arrowSize / 2} L ${result.bbW} ${-offset} L ${result.bbW - arrowSize} ${-offset + arrowSize / 2}" fill="none" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <text x="${result.bbW / 2}" y="${-offset - dynamicFontSize * 0.5}" text-anchor="middle" fill="#525252">${result.bbW.toFixed(0)}</text>
+
+        <line x1="${-offset}" y1="0" x2="${-offset}" y2="${result.bbH}" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <line x1="${-offset - tickSize}" y1="0" x2="${-tickSize}" y2="0" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <line x1="${-offset - tickSize}" y1="${result.bbH}" x2="${-tickSize}" y2="${result.bbH}" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <path d="M ${-offset - arrowSize / 2} ${arrowSize} L ${-offset} 0 L ${-offset + arrowSize / 2} ${arrowSize}" fill="none" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <path d="M ${-offset - arrowSize / 2} ${result.bbH - arrowSize} L ${-offset} ${result.bbH} L ${-offset + arrowSize / 2} ${result.bbH - arrowSize}" fill="none" stroke="#525252" stroke-width="${dynamicStrokeWidth}" />
+        <text x="${-offset - dynamicFontSize * 0.5}" y="${result.bbH / 2}" text-anchor="middle" fill="#525252" transform="rotate(-90, ${-offset - dynamicFontSize * 0.5}, ${result.bbH / 2})">${result.bbH.toFixed(0)}</text>
+      </g>
+    `;
+
+    const centerLineMarkup = showCenterLines ? `
+      <g stroke="#a3a3a3" stroke-width="${dynamicStrokeWidth}" opacity="0.8">
+        <path d="M ${result.bbW / 2 - tickSize * 1.5} ${result.bbH / 2} L ${result.bbW / 2 + tickSize * 1.5} ${result.bbH / 2} M ${result.bbW / 2} ${result.bbH / 2 - tickSize * 1.5} L ${result.bbW / 2} ${result.bbH / 2 + tickSize * 1.5}" />
+        <line x1="${result.bbW / 2}" y1="${-offset / 2}" x2="${result.bbW / 2}" y2="${result.bbH / 2 - tickSize * 3}" stroke-dasharray="${tickSize * 5}, ${tickSize}, ${tickSize}, ${tickSize}" />
+        <line x1="${result.bbW / 2}" y1="${result.bbH / 2 + tickSize * 3}" x2="${result.bbW / 2}" y2="${result.bbH + offset / 2}" stroke-dasharray="${tickSize * 5}, ${tickSize}, ${tickSize}, ${tickSize}" />
+        <line x1="${-offset / 2}" y1="${result.bbH / 2}" x2="${result.bbW / 2 - tickSize * 3}" y2="${result.bbH / 2}" stroke-dasharray="${tickSize * 5}, ${tickSize}, ${tickSize}, ${tickSize}" />
+        <line x1="${result.bbW / 2 + tickSize * 3}" y1="${result.bbH / 2}" x2="${result.bbW + offset / 2}" y2="${result.bbH / 2}" stroke-dasharray="${tickSize * 5}, ${tickSize}, ${tickSize}, ${tickSize}" />
+      </g>
+    ` : '';
+
+    const centerOffsetXMarkup = showCenterLines && modX && minDx > 0.1 ? `
+      <g stroke="#525252" fill="none" stroke-width="${dynamicStrokeWidth}" style="font-size: ${dynamicFontSize * 0.8}px" class="font-mono">
+        <line x1="${result.bbW / 2}" y1="${-tickSize}" x2="${result.bbW / 2}" y2="${-offset / 2 - tickSize}" />
+        <line x1="${modX.x + modX.w / 2}" y1="${-tickSize}" x2="${modX.x + modX.w / 2}" y2="${-offset / 2 - tickSize}" />
+        <line x1="${result.bbW / 2}" y1="${-offset / 2}" x2="${modX.x + modX.w / 2}" y2="${-offset / 2}" />
+        <path d="M ${result.bbW / 2 + arrowSize} ${-offset / 2 - arrowSize / 2} L ${result.bbW / 2} ${-offset / 2} L ${result.bbW / 2 + arrowSize} ${-offset / 2 + arrowSize / 2}" />
+        <path d="M ${modX.x + modX.w / 2 - arrowSize} ${-offset / 2 - arrowSize / 2} L ${modX.x + modX.w / 2} ${-offset / 2} L ${modX.x + modX.w / 2 - arrowSize} ${-offset / 2 + arrowSize / 2}" />
+        <text x="${(result.bbW / 2 + modX.x + modX.w / 2) / 2}" y="${-offset / 2 - dynamicFontSize * 0.3}" fill="#525252" stroke="none" text-anchor="middle">${Math.round(minDx * 10) / 10}</text>
+      </g>
+    ` : '';
+
+    const centerOffsetYMarkup = showCenterLines && modY && minDy > 0.1 ? `
+      <g stroke="#525252" fill="none" stroke-width="${dynamicStrokeWidth}" style="font-size: ${dynamicFontSize * 0.8}px" class="font-mono">
+        <line x1="${-tickSize}" y1="${result.bbH / 2}" x2="${-offset / 2 - tickSize}" y2="${result.bbH / 2}" />
+        <line x1="${-tickSize}" y1="${modY.y + modY.h / 2}" x2="${-offset / 2 - tickSize}" y2="${modY.y + modY.h / 2}" />
+        <line x1="${-offset / 2}" y1="${result.bbH / 2}" x2="${-offset / 2}" y2="${modY.y + modY.h / 2}" />
+        <path d="M ${-offset / 2 - arrowSize / 2} ${result.bbH / 2 + arrowSize} L ${-offset / 2} ${result.bbH / 2} L ${-offset / 2 + arrowSize / 2} ${result.bbH / 2 + arrowSize}" />
+        <path d="M ${-offset / 2 - arrowSize / 2} ${modY.y + modY.h / 2 - arrowSize} L ${-offset / 2} ${modY.y + modY.h / 2} L ${-offset / 2 + arrowSize / 2} ${modY.y + modY.h / 2 - arrowSize}" />
+        <text x="${-offset / 2 - dynamicFontSize * 0.3}" y="${(result.bbH / 2 + modY.y + modY.h / 2) / 2}" fill="#525252" stroke="none" text-anchor="middle" transform="rotate(-90, ${-offset / 2 - dynamicFontSize * 0.3}, ${(result.bbH / 2 + modY.y + modY.h / 2) / 2})">${Math.round(minDy * 10) / 10}</text>
+      </g>
+    ` : '';
+
+    const labelMarkup = `
+      <text x="0" y="${result.bbH + padding + labelFontSize}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">${objectName}</text>
+      <text x="0" y="${result.bbH + padding + labelFontSize + labelLineHeight}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">${moduleName} : ${result.modules.length} pcs.</text>
+      <text x="0" y="${result.bbH + padding + labelFontSize + labelLineHeight * 2}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">Spacing : ${spaceX}x${spaceY} mm.</text>
+      <text x="${result.bbW}" y="${result.bbH + padding + labelFontSize + labelLineHeight * 2}" text-anchor="end" style="font-size: ${dynamicFontSize * 0.8}px" class="font-sans fill-neutral-500 italic">* All dimensions are in mm</text>
+    `;
 
     return {
       id: plannerLampId,
-      svgContent: `${pathMarkup}${moduleRects}`,
+      svgContent: `${dimensionMarkup}${shapeMarkup}${centerLineMarkup}${centerOffsetXMarkup}${centerOffsetYMarkup}${moduleRects}${labelMarkup}`,
       viewBox: exportViewBox,
       bbW: result.bbW,
       bbH: result.bbH,
@@ -1359,7 +1418,41 @@ Use Chain-of-Thought reasoning to:
       t: lampLight,
       exactAreaSqm: calculateExactAreaSqm(),
     };
-  }, [appView, plannerLampId, result.modules, result.shapePath, result.bbW, result.bbH, shape, customPath, exportViewBox, objectName, lampQ, lampH, lampD, lampF, lampLight, calculateExactAreaSqm]);
+  }, [
+    appView,
+    plannerLampId,
+    result.modules,
+    result.shapePath,
+    result.bbW,
+    result.bbH,
+    shape,
+    customPath,
+    textPath,
+    dynamicStrokeWidth,
+    dynamicFontSize,
+    offset,
+    tickSize,
+    arrowSize,
+    showCenterLines,
+    modX,
+    modY,
+    minDx,
+    minDy,
+    padding,
+    labelFontSize,
+    labelLineHeight,
+    moduleName,
+    spaceX,
+    spaceY,
+    exportViewBox,
+    objectName,
+    lampQ,
+    lampH,
+    lampD,
+    lampF,
+    lampLight,
+    calculateExactAreaSqm,
+  ]);
 
   const effectiveTemplatePages = useMemo(() => {
     const formIds = new Set(formTemplatePages.map(page => page.id));
