@@ -6,6 +6,7 @@ import opentype from 'opentype.js';
 
 type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'semicircle' | 'u-shape' | 'c-shape' | 't-shape' | 'hollow-rect' | 'hexagon' | 'octagon' | 'custom' | 'polygon' | 'text';
 type LayoutType = 'grid' | 'staggered';
+type AppView = 'form' | 'planner';
 
 interface Point { x: number; y: number; }
 
@@ -15,6 +16,22 @@ interface SavedShape {
   path: string;
   image?: string | null;
 }
+
+interface FormLampItem {
+  id: string;
+  shapeName: string;
+  w: number;
+  l: number;
+  q: number;
+  h: string;
+  d: string;
+  f: string;
+  t: string;
+  file: File | null;
+}
+
+const TEMPLATE_EXPORT_WIDTH = 1050;
+const TEMPLATE_EXPORT_HEIGHT = 742;
 
 const Input = ({ label, value, onChange }: { label: string, value: number, onChange: (v: number) => void }) => (
   <div>
@@ -243,6 +260,22 @@ export default function App() {
   const [structure, setStructure] = useState('ทำ');
   const [aoName, setAoName] = useState('L&E Team');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
+  const [appView, setAppView] = useState<AppView>('form');
+  const [isSubmittingChecklist, setIsSubmittingChecklist] = useState(false);
+  const [formLamps, setFormLamps] = useState<FormLampItem[]>([
+    {
+      id: Math.random().toString(36).slice(2),
+      shapeName: 'SC-01',
+      w: 0,
+      l: 0,
+      q: 1,
+      h: '3',
+      d: '10 เซนติเมตร',
+      f: 'ผ้าใบขาว',
+      t: '3000K',
+      file: null,
+    },
+  ]);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const [savedShapes, setSavedShapes] = useState<SavedShape[]>(() => {
@@ -806,6 +839,8 @@ Use Chain-of-Thought reasoning to:
     });
   };
 
+  const logoLEUrl = `${window.location.origin}/logo_LE.svg`;
+
   const generateCoverPageSVG = (details: DocumentDetails) => {
     return `
       <svg width="4200" height="2970" viewBox="0 0 4200 2970" xmlns="http://www.w3.org/2000/svg">
@@ -813,14 +848,7 @@ Use Chain-of-Thought reasoning to:
         <rect x="100" y="100" width="4000" height="2770" fill="none" stroke="black" stroke-width="5"/>
         <rect x="120" y="120" width="3960" height="2730" fill="none" stroke="black" stroke-width="2"/>
         
-        <g transform="translate(1500, 400)">
-          <svg width="1200" height="549" viewBox="0 0 612 280">
-            <path fill-rule="evenodd" clip-rule="evenodd" d="${LOGO_LE_PATH}" fill="#007BFF"/>
-            <path d="${LOGO_LE_L_PATH}" fill="#007BFF"/>
-            <path d="${LOGO_LE_AMPERSAND_PATH}" fill="#007BFF"/>
-            <path d="${LOGO_LE_E_PATH}" fill="#007BFF"/>
-          </svg>
-        </g>
+        <image href="${logoLEUrl}" x="1500" y="400" width="1200" height="549" preserveAspectRatio="xMidYMid meet" />
 
         <g transform="translate(1200, 1200)" font-family="sans-serif" font-size="40">
           <line x1="0" y1="0" x2="1800" y2="0" stroke="black" stroke-width="2"/>
@@ -889,14 +917,7 @@ Use Chain-of-Thought reasoning to:
         <g transform="translate(3500, 120)">
           <text x="290" y="60" font-family="sans-serif" font-size="45" font-weight="bold" text-anchor="middle">STRETCH CEILING</text>
           
-          <g transform="translate(90, 80)">
-            <svg width="400" height="183" viewBox="0 0 612 280">
-              <path fill-rule="evenodd" clip-rule="evenodd" d="${LOGO_LE_PATH}" fill="#007BFF"/>
-              <path d="${LOGO_LE_L_PATH}" fill="#007BFF"/>
-              <path d="${LOGO_LE_AMPERSAND_PATH}" fill="#007BFF"/>
-              <path d="${LOGO_LE_E_PATH}" fill="#007BFF"/>
-            </svg>
-          </g>
+          <image href="${logoLEUrl}" x="90" y="80" width="400" height="183" preserveAspectRatio="xMidYMid meet" />
           
           <text x="290" y="290" font-family="sans-serif" font-size="20" text-anchor="middle">539/2, 16-17 F. Gypsum Metropolitan Tower</text>
           <text x="290" y="320" font-family="sans-serif" font-size="20" text-anchor="middle">Rajthevee, Bangkok, Thailand, 10400</text>
@@ -1061,13 +1082,13 @@ Use Chain-of-Thought reasoning to:
       });
       
       const coverSvgString = generateCoverPageSVG(docDetails);
-      const coverImgData = await svgToPng(coverSvgString, 4200, 2970);
+      const coverImgData = await svgToPng(coverSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
       pdf.addImage(coverImgData, 'PNG', 0, 0, 420, 297);
       
       for (let i = 0; i < pages.length; i++) {
         pdf.addPage('a3', 'landscape');
         const pageSvgString = generateDrawingPageSVG(docDetails, pages[i], i + 1, pages.length);
-        const pageImgData = await svgToPng(pageSvgString, 4200, 2970);
+        const pageImgData = await svgToPng(pageSvgString, TEMPLATE_EXPORT_WIDTH, TEMPLATE_EXPORT_HEIGHT);
         pdf.addImage(pageImgData, 'PNG', 0, 0, 420, 297);
       }
       
@@ -1088,8 +1109,8 @@ Use Chain-of-Thought reasoning to:
     }
     setIsSendingBOQ(true);
     try {
-      const exportWidthPx = 1400;
-      const exportHeightPx = 990;
+      const exportWidthPx = TEMPLATE_EXPORT_WIDTH;
+      const exportHeightPx = TEMPLATE_EXPORT_HEIGHT;
 
       // สร้าง PDF
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
@@ -1186,6 +1207,133 @@ Use Chain-of-Thought reasoning to:
     }
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const updateFormLamp = (id: string, patch: Partial<FormLampItem>) => {
+    setFormLamps(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const addFormLamp = () => {
+    setFormLamps(prev => [
+      ...prev,
+      {
+        id: Math.random().toString(36).slice(2),
+        shapeName: '',
+        w: 0,
+        l: 0,
+        q: 1,
+        h: '3',
+        d: '10 เซนติเมตร',
+        f: 'ผ้าใบขาว',
+        t: '3000K',
+        file: null,
+      },
+    ]);
+  };
+
+  const removeFormLamp = (id: string) => {
+    setFormLamps(prev => (prev.length > 1 ? prev.filter(item => item.id !== id) : prev));
+  };
+
+  const submitChecklistForm = async () => {
+    if (!aoName.trim() || !docDetails.projectName.trim() || !docDetails.location.trim()) {
+      alert('กรุณากรอก AO/แผนก, ชื่อ Project และสถานที่หน้างานให้ครบ');
+      return;
+    }
+    if (formLamps.some(l => !l.shapeName.trim() || l.w <= 0 || l.l <= 0 || l.q <= 0)) {
+      alert('กรุณากรอกข้อมูลรายการโคมให้ครบ (Type, กว้าง, ยาว, จำนวน ต้องมากกว่า 0)');
+      return;
+    }
+
+    setIsSubmittingChecklist(true);
+    try {
+      const lamps = await Promise.all(formLamps.map(async (lamp, index) => {
+        let filePayload: { mimeType: string; data: string; name: string } | null = null;
+        if (lamp.file) {
+          if (lamp.file.size > 6 * 1024 * 1024) {
+            throw new Error(`ไฟล์ของรายการที่ ${index + 1} ใหญ่เกิน 6MB`);
+          }
+          const dataUri = await fileToBase64(lamp.file);
+          const base64Data = dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+          filePayload = {
+            mimeType: lamp.file.type || 'application/octet-stream',
+            data: base64Data,
+            name: lamp.file.name || `lamp-${index + 1}.pdf`,
+          };
+        }
+
+        return {
+          shapeName: lamp.shapeName,
+          w: lamp.w.toFixed(2),
+          l: lamp.l.toFixed(2),
+          q: lamp.q,
+          h: lamp.h,
+          d: lamp.d,
+          f: lamp.f,
+          t: lamp.t,
+          exactArea: (lamp.w * lamp.l) / 1000000,
+          file: filePayload,
+        };
+      }));
+
+      const payload = {
+        aoName,
+        projectName: docDetails.projectName,
+        location: docDetails.location,
+        structure,
+        lamps,
+      };
+
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbxSUTcoSjLsuh7bVQWnKJmqk5tEWprr45XhdXR-Dqnffel7cfZTJMFsW6SCoNIE-uM8pQ/exec';
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        const text = await response.text();
+        let parsed: { status?: string; message?: string } = {};
+        if (text) {
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            parsed = { status: 'Error', message: `Non-JSON response: ${text.slice(0, 240)}` };
+          }
+        }
+
+        if (!response.ok) {
+          const httpDebug = `HTTP ${response.status} ${response.statusText || ''}`.trim();
+          throw new Error(parsed.message || httpDebug);
+        }
+
+        if (parsed.status === 'Success') {
+          alert('✅ ส่งข้อมูลเรียบร้อย ระบบบันทึกและส่ง LINE สำเร็จ');
+        } else {
+          alert('❌ เกิดข้อผิดพลาด: ' + (parsed.message || 'Unknown server response'));
+        }
+      } catch {
+        await fetch(apiUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          body: JSON.stringify(payload),
+        });
+        alert('✅ ระบบส่งคำขอแล้ว (โหมด no-cors) กรุณาตรวจผลใน Google Sheet/LINE');
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      alert('❌ ส่งข้อมูลไม่สำเร็จ: ' + msg);
+    } finally {
+      setIsSubmittingChecklist(false);
+    }
+  };
+
   const downloadPDF = () => {
     if (!svgRef.current) return;
     const svgClone = svgRef.current.cloneNode(true) as SVGSVGElement;
@@ -1226,12 +1374,125 @@ Use Chain-of-Thought reasoning to:
   const polygonViewBoxWidth = 600 / polygonCanvasZoom;
   const polygonViewBoxHeight = 400 / polygonCanvasZoom;
 
+  if (appView === 'form') {
+    return (
+      <div className="min-h-screen bg-neutral-100 p-4 md:p-8 text-neutral-900">
+        <div className="mx-auto w-full max-w-4xl rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="border-b border-neutral-200 p-6">
+            <div className="flex items-center gap-3">
+              <img src="/logo_LE.svg" alt="L&E" className="h-10 w-auto" />
+              <div>
+                <h1 className="text-2xl font-bold text-blue-700">L&E Check List</h1>
+                <p className="text-sm text-neutral-500">ประเมินราคาและข้อมูลหน้างาน</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-5 p-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <TextInput label="ชื่อ AO/แผนก *" value={aoName} onChange={setAoName} />
+              <TextInput label="ชื่อ Project *" value={docDetails.projectName} onChange={(v) => setDocDetails({ ...docDetails, projectName: v })} />
+              <TextInput label="สถานที่หน้างาน *" value={docDetails.location} onChange={(v) => setDocDetails({ ...docDetails, location: v })} />
+              <TextInput label="Project Number" value={docDetails.projectNumber} onChange={(v) => setDocDetails({ ...docDetails, projectNumber: v })} />
+              <TextInput label="ผู้ติดต่อ / Client" value={docDetails.client} onChange={(v) => setDocDetails({ ...docDetails, client: v })} />
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องงานโครงสร้างใหม่? *</label>
+                <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
+                  <option value="ทำ">ทำ</option>
+                  <option value="ไม่ทำ">ไม่ทำ</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="h-px bg-neutral-200" />
+
+            <div className="space-y-4">
+              {formLamps.map((lamp, index) => (
+                <div key={lamp.id} className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-neutral-700">โคมรายการที่ {index + 1}</h3>
+                    {formLamps.length > 1 && (
+                      <button onClick={() => removeFormLamp(lamp.id)} className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200">
+                        ลบรายการนี้
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <TextInput label="Type (ชื่อของโครง) *" value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
+                    <TextInput label="ความสูงหน้างาน (ม.) *" value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
+                    <Input label="กว้าง (มม.) *" value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
+                    <Input label="ยาว (มม.) *" value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
+                    <Input label="จำนวน *" value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง *</label>
+                      <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
+                        <option value="10 เซนติเมตร">10 เซนติเมตร</option>
+                        <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
+                        <option value="อื่นๆ">อื่นๆ</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ชนิดของผ้าใบ *</label>
+                      <select value={lamp.f} onChange={(e) => updateFormLamp(lamp.id, { f: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
+                        <option value="ผ้าใบขาว">ผ้าใบขาว</option>
+                        <option value="พิมพ์ลาย">พิมพ์ลาย</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">อุณหภูมิแสง *</label>
+                      <select value={lamp.t} onChange={(e) => updateFormLamp(lamp.id, { t: e.target.value })} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
+                        <option value="3000K">3000K</option>
+                        <option value="4000K">4000K</option>
+                        <option value="6500K">6500K</option>
+                        <option value="Tunable White">Tunable White</option>
+                        <option value="RGBW">RGBW</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ไฟล์ CAD/ภาพ Perspective (ถ้ามี)</label>
+                      <input
+                        type="file"
+                        onChange={(e) => updateFormLamp(lamp.id, { file: e.target.files?.[0] || null })}
+                        className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <button onClick={addFormLamp} className="w-full rounded border border-dashed border-sky-400 bg-sky-50 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100">
+                + เพิ่มรายการโคม (Type ใหม่)
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 pt-2 md:flex-row md:justify-end">
+              <button onClick={() => setAppView('planner')} className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100">
+                เปิดเครื่องมือวาดขั้นสูง
+              </button>
+              <button
+                onClick={submitChecklistForm}
+                disabled={isSubmittingChecklist}
+                className="rounded bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-60"
+              >
+                {isSubmittingChecklist ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูล & อัปโหลดไฟล์'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-neutral-100 font-sans text-neutral-900">
       <div className="w-80 bg-white border-r border-neutral-200 flex flex-col shadow-sm z-10">
         <div className="p-4 border-b border-neutral-200">
           <h1 className="text-lg font-semibold tracking-tight">Module Array Planner</h1>
           <p className="text-xs text-neutral-500 mt-1">Automate module distribution</p>
+          <button onClick={() => setAppView('form')} className="mt-3 rounded border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100">
+            กลับไปหน้าแบบฟอร์ม
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
