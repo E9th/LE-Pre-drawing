@@ -96,6 +96,13 @@ const LED_MODULE_WATT = 1.44;
 const SWITCHING_POWER_WATT = 150;
 const SWITCHING_PRICE_PER_UNIT = 0;
 
+const escapeSvgText = (value: string): string => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
 const getNextShapeName = (lamps: FormLampItem[]): string => {
   const maxSeq = lamps.reduce((max, lamp) => {
     const match = String(lamp.shapeName || '').trim().match(/^SC-(\d+)$/i);
@@ -1356,16 +1363,176 @@ Use Chain-of-Thought reasoning to:
     };
 
     const shapePath = shapePathByType[lamp.objectShape] || shapePathByType.rectangle;
-    const padding = Math.max(width, height) * 0.15;
-    const labelY = height + padding * 0.6;
-    const viewBox = `${-padding} ${-padding} ${width + padding * 2} ${height + padding * 1.6}`;
-    const areaSqm = (width * height) / 1000000;
+    const depthSpacing = getSpacingByDepth(lamp.d || '');
+    const currentSpaceX = depthSpacing?.x ?? spaceX;
+    const currentSpaceY = depthSpacing?.y ?? spaceY;
+    const modules: Array<{ x: number; y: number; w: number; h: number }> = [];
 
-    const svgContent = `
-      <path d="${shapePath}" fill="white" stroke="#525252" stroke-width="3" />
-      <text x="0" y="${labelY}" font-size="22" fill="#111827" font-family="sans-serif">${lamp.shapeName || `Lamp ${index + 1}`}</text>
-      <text x="0" y="${labelY + 28}" font-size="18" fill="#374151" font-family="sans-serif">${width.toFixed(0)} x ${height.toFixed(0)} mm | QTY ${lamp.q}</text>
+    if (modW > 0 && modH > 0 && currentSpaceX > 0 && currentSpaceY > 0) {
+      const path = new Path2D(shapePath);
+      const testCanvas = document.createElement('canvas');
+      const testCtx = testCanvas.getContext('2d');
+      if (testCtx) {
+        const ny = Math.floor((height - modH) / currentSpaceY) + 1;
+        if (ny > 0) {
+          const arrH = (ny - 1) * currentSpaceY + modH;
+          const startY = (height - arrH) / 2 + modH / 2;
+
+          let arrW = 0;
+          let nxEven = 0;
+          let nxOdd = 0;
+          if (layoutType === 'grid') {
+            nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
+            nxOdd = nxEven;
+            if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + modW;
+          } else {
+            nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
+            nxOdd = Math.floor((width - modW - currentSpaceX / 2) / currentSpaceX) + 1;
+            const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + modW : 0;
+            const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + modW : 0;
+            arrW = Math.max(wEven, wOdd);
+          }
+
+          if (arrW > 0) {
+            const baseStartX = (width - arrW) / 2 + modW / 2;
+            for (let j = 0; j < ny; j++) {
+              const isOddRow = j % 2 !== 0;
+              const nx = (layoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
+              const offsetX = (layoutType === 'staggered' && isOddRow) ? currentSpaceX / 2 : 0;
+
+              for (let i = 0; i < nx; i++) {
+                const cxm = baseStartX + offsetX + i * currentSpaceX;
+                const cym = startY + j * currentSpaceY;
+                const corners = [
+                  { x: cxm - modW / 2, y: cym - modH / 2 },
+                  { x: cxm + modW / 2, y: cym - modH / 2 },
+                  { x: cxm + modW / 2, y: cym + modH / 2 },
+                  { x: cxm - modW / 2, y: cym + modH / 2 },
+                ];
+                const inside = corners.every((pt) => testCtx.isPointInPath(path, pt.x, pt.y, 'evenodd'));
+                if (inside) modules.push({ x: cxm - modW / 2, y: cym - modH / 2, w: modW, h: modH });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    let minDxLocal = Infinity;
+    let modXLocal: { x: number; y: number; w: number; h: number } | null = null;
+    let minDyLocal = Infinity;
+    let modYLocal: { x: number; y: number; w: number; h: number } | null = null;
+
+    if (showCenterLines && modules.length > 0) {
+      modules.forEach((mod) => {
+        const centerX = mod.x + mod.w / 2;
+        const centerY = mod.y + mod.h / 2;
+
+        const dx = centerX - width / 2;
+        if (dx > 0.1) {
+          if (dx < minDxLocal - 0.1) {
+            minDxLocal = dx;
+            modXLocal = mod;
+          } else if (Math.abs(dx - minDxLocal) <= 0.1 && modXLocal) {
+            const prevDy = Math.abs((modXLocal.y + modXLocal.h / 2) - height / 2);
+            const nextDy = Math.abs(centerY - height / 2);
+            if (nextDy < prevDy) modXLocal = mod;
+          }
+        }
+
+        const dy = centerY - height / 2;
+        if (dy > 0.1) {
+          if (dy < minDyLocal - 0.1) {
+            minDyLocal = dy;
+            modYLocal = mod;
+          } else if (Math.abs(dy - minDyLocal) <= 0.1 && modYLocal) {
+            const prevDx = Math.abs((modYLocal.x + modYLocal.w / 2) - width / 2);
+            const nextDx = Math.abs(centerX - width / 2);
+            if (nextDx < prevDx) modYLocal = mod;
+          }
+        }
+      });
+    }
+
+    const localMaxDim = Math.max(width, height);
+    const localStroke = Math.max(1, localMaxDim * 0.002);
+    const localOffset = Math.max(40, localMaxDim * 0.08);
+    const localTick = Math.max(5, localMaxDim * 0.01);
+    const localArrow = Math.max(6, localMaxDim * 0.012);
+    const localFont = Math.max(12, localMaxDim * 0.018);
+    const localPadding = Math.max(width, height) * 0.15;
+    const localLabelFont = Math.max(14, localFont);
+    const localLabelGap = localLabelFont * 1.6;
+    const localBottomPadding = localPadding + localLabelGap * 3;
+    const viewBox = `${-localPadding} ${-localPadding} ${width + localPadding * 2} ${height + localPadding + localBottomPadding}`;
+
+    const moduleColor = getModuleColorsByLightTemp(lamp.t || lampLight);
+    const moduleRects = modules.map((mod) => `
+      <g transform="translate(${mod.x}, ${mod.y})">
+        <rect width="${mod.w}" height="${mod.h}" fill="${moduleColor.fill}" stroke="${moduleColor.stroke}" stroke-width="${localStroke}" />
+        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="${localStroke * 1.5}" fill="${moduleColor.dot}" />
+      </g>
+    `).join('');
+
+    const dimensionMarkup = `
+      <g style="font-size: ${localFont}px" class="font-mono fill-neutral-600" stroke="none">
+        <line x1="0" y1="${-localOffset}" x2="${width}" y2="${-localOffset}" stroke="#525252" stroke-width="${localStroke}" />
+        <line x1="0" y1="${-localOffset - localTick}" x2="0" y2="${-localTick}" stroke="#525252" stroke-width="${localStroke}" />
+        <line x1="${width}" y1="${-localOffset - localTick}" x2="${width}" y2="${-localTick}" stroke="#525252" stroke-width="${localStroke}" />
+        <path d="M ${localArrow} ${-localOffset - localArrow / 2} L 0 ${-localOffset} L ${localArrow} ${-localOffset + localArrow / 2}" fill="none" stroke="#525252" stroke-width="${localStroke}" />
+        <path d="M ${width - localArrow} ${-localOffset - localArrow / 2} L ${width} ${-localOffset} L ${width - localArrow} ${-localOffset + localArrow / 2}" fill="none" stroke="#525252" stroke-width="${localStroke}" />
+        <text x="${width / 2}" y="${-localOffset - localFont * 0.5}" text-anchor="middle" fill="#525252">${width.toFixed(0)}</text>
+
+        <line x1="${-localOffset}" y1="0" x2="${-localOffset}" y2="${height}" stroke="#525252" stroke-width="${localStroke}" />
+        <line x1="${-localOffset - localTick}" y1="0" x2="${-localTick}" y2="0" stroke="#525252" stroke-width="${localStroke}" />
+        <line x1="${-localOffset - localTick}" y1="${height}" x2="${-localTick}" y2="${height}" stroke="#525252" stroke-width="${localStroke}" />
+        <path d="M ${-localOffset - localArrow / 2} ${localArrow} L ${-localOffset} 0 L ${-localOffset + localArrow / 2} ${localArrow}" fill="none" stroke="#525252" stroke-width="${localStroke}" />
+        <path d="M ${-localOffset - localArrow / 2} ${height - localArrow} L ${-localOffset} ${height} L ${-localOffset + localArrow / 2} ${height - localArrow}" fill="none" stroke="#525252" stroke-width="${localStroke}" />
+        <text x="${-localOffset - localFont * 0.5}" y="${height / 2}" text-anchor="middle" fill="#525252" transform="rotate(-90, ${-localOffset - localFont * 0.5}, ${height / 2})">${height.toFixed(0)}</text>
+      </g>
     `;
+
+    const centerLineMarkup = showCenterLines ? `
+      <g stroke="#a3a3a3" stroke-width="${localStroke}" opacity="0.8">
+        <path d="M ${width / 2 - localTick * 1.5} ${height / 2} L ${width / 2 + localTick * 1.5} ${height / 2} M ${width / 2} ${height / 2 - localTick * 1.5} L ${width / 2} ${height / 2 + localTick * 1.5}" />
+        <line x1="${width / 2}" y1="${-localOffset / 2}" x2="${width / 2}" y2="${height / 2 - localTick * 3}" stroke-dasharray="${localTick * 5}, ${localTick}, ${localTick}, ${localTick}" />
+        <line x1="${width / 2}" y1="${height / 2 + localTick * 3}" x2="${width / 2}" y2="${height + localOffset / 2}" stroke-dasharray="${localTick * 5}, ${localTick}, ${localTick}, ${localTick}" />
+        <line x1="${-localOffset / 2}" y1="${height / 2}" x2="${width / 2 - localTick * 3}" y2="${height / 2}" stroke-dasharray="${localTick * 5}, ${localTick}, ${localTick}, ${localTick}" />
+        <line x1="${width / 2 + localTick * 3}" y1="${height / 2}" x2="${width + localOffset / 2}" y2="${height / 2}" stroke-dasharray="${localTick * 5}, ${localTick}, ${localTick}, ${localTick}" />
+      </g>
+    ` : '';
+
+    const centerOffsetXMarkup = showCenterLines && modXLocal && minDxLocal > 0.1 ? `
+      <g stroke="#525252" fill="none" stroke-width="${localStroke}" style="font-size: ${localFont * 0.8}px" class="font-mono">
+        <line x1="${width / 2}" y1="${-localTick}" x2="${width / 2}" y2="${-localOffset / 2 - localTick}" />
+        <line x1="${modXLocal.x + modXLocal.w / 2}" y1="${-localTick}" x2="${modXLocal.x + modXLocal.w / 2}" y2="${-localOffset / 2 - localTick}" />
+        <line x1="${width / 2}" y1="${-localOffset / 2}" x2="${modXLocal.x + modXLocal.w / 2}" y2="${-localOffset / 2}" />
+        <path d="M ${width / 2 + localArrow} ${-localOffset / 2 - localArrow / 2} L ${width / 2} ${-localOffset / 2} L ${width / 2 + localArrow} ${-localOffset / 2 + localArrow / 2}" />
+        <path d="M ${modXLocal.x + modXLocal.w / 2 - localArrow} ${-localOffset / 2 - localArrow / 2} L ${modXLocal.x + modXLocal.w / 2} ${-localOffset / 2} L ${modXLocal.x + modXLocal.w / 2 - localArrow} ${-localOffset / 2 + localArrow / 2}" />
+        <text x="${(width / 2 + modXLocal.x + modXLocal.w / 2) / 2}" y="${-localOffset / 2 - localFont * 0.3}" fill="#525252" stroke="none" text-anchor="middle">${Math.round(minDxLocal * 10) / 10}</text>
+      </g>
+    ` : '';
+
+    const centerOffsetYMarkup = showCenterLines && modYLocal && minDyLocal > 0.1 ? `
+      <g stroke="#525252" fill="none" stroke-width="${localStroke}" style="font-size: ${localFont * 0.8}px" class="font-mono">
+        <line x1="${-localTick}" y1="${height / 2}" x2="${-localOffset / 2 - localTick}" y2="${height / 2}" />
+        <line x1="${-localTick}" y1="${modYLocal.y + modYLocal.h / 2}" x2="${-localOffset / 2 - localTick}" y2="${modYLocal.y + modYLocal.h / 2}" />
+        <line x1="${-localOffset / 2}" y1="${height / 2}" x2="${-localOffset / 2}" y2="${modYLocal.y + modYLocal.h / 2}" />
+        <path d="M ${-localOffset / 2 - localArrow / 2} ${height / 2 + localArrow} L ${-localOffset / 2} ${height / 2} L ${-localOffset / 2 + localArrow / 2} ${height / 2 + localArrow}" />
+        <path d="M ${-localOffset / 2 - localArrow / 2} ${modYLocal.y + modYLocal.h / 2 - localArrow} L ${-localOffset / 2} ${modYLocal.y + modYLocal.h / 2} L ${-localOffset / 2 + localArrow / 2} ${modYLocal.y + modYLocal.h / 2 - localArrow}" />
+        <text x="${-localOffset / 2 - localFont * 0.3}" y="${(height / 2 + modYLocal.y + modYLocal.h / 2) / 2}" fill="#525252" stroke="none" text-anchor="middle" transform="rotate(-90, ${-localOffset / 2 - localFont * 0.3}, ${(height / 2 + modYLocal.y + modYLocal.h / 2) / 2})">${Math.round(minDyLocal * 10) / 10}</text>
+      </g>
+    ` : '';
+
+    const labelMarkup = `
+      <text x="0" y="${height + localPadding + localLabelFont}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">${lamp.shapeName || `Lamp ${index + 1}`}</text>
+      <text x="0" y="${height + localPadding + localLabelFont + localLabelGap}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">${moduleName} : ${modules.length} pcs.</text>
+      <text x="0" y="${height + localPadding + localLabelFont + localLabelGap * 2}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">Spacing : ${currentSpaceX}x${currentSpaceY} mm.</text>
+      <text x="${width}" y="${height + localPadding + localLabelFont + localLabelGap * 2}" text-anchor="end" style="font-size: ${localFont * 0.8}px" class="font-sans fill-neutral-500 italic">* All dimensions are in mm</text>
+    `;
+
+    const areaSqm = (width * height) / 1000000;
+    const svgContent = `${dimensionMarkup}<path d="${shapePath}" fill="white" stroke="#525252" stroke-width="${localStroke * 2}" />${centerLineMarkup}${centerOffsetXMarkup}${centerOffsetYMarkup}${moduleRects}${labelMarkup}`;
 
     return {
       id: lamp.id,
@@ -1373,7 +1540,7 @@ Use Chain-of-Thought reasoning to:
       viewBox,
       bbW: width,
       bbH: height,
-      moduleCount: Math.max(1, lamp.modulesPerLamp || 1),
+      moduleCount: Math.max(1, modules.length || lamp.modulesPerLamp || 1),
       name: `${lamp.shapeName || `Lamp ${index + 1}`} (${lamp.objectShape})`,
       q: lamp.q,
       h: lamp.h,
@@ -1384,7 +1551,7 @@ Use Chain-of-Thought reasoning to:
     };
   };
 
-  const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePage(lamp, index)), [formLamps]);
+  const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePage(lamp, index)), [formLamps, modW, modH, spaceX, spaceY, layoutType, showCenterLines, lampLight, moduleName]);
   const moduleColors = useMemo(() => getModuleColorsByLightTemp(lampLight), [lampLight]);
   const plannerDraftPage = useMemo<PageData | null>(() => {
     if (appView !== 'planner' || !plannerLampId) return null;
@@ -1702,7 +1869,7 @@ Use Chain-of-Thought reasoning to:
       [],
       [
         'Type',
-        'ขนาด (มม. x มม.)',
+        'ขนาด (ม. x ม.)',
         'พื้นที่/โคม (ตร.ม.)',
         'Qty (pcs)',
         'พื้นที่รวม (ตร.ม.)',
@@ -1780,7 +1947,7 @@ Use Chain-of-Thought reasoning to:
     pricingExportRows,
   ]);
 
-  const downloadPricingPDF = () => {
+  const downloadPricingPDF = async () => {
     if (effectiveTemplatePages.length === 0) {
       alert('ยังไม่มีรายการสำหรับสร้างตารางคำนวณ');
       return;
@@ -1847,80 +2014,72 @@ Use Chain-of-Thought reasoning to:
       totals.switchingPricePerType.toFixed(0), totals.summaryPricePerType.toFixed(0),
     ]);
 
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-    const pageHeight = 297;
-    const marginX = 8;
-    const marginY = 8;
-    const colWidths = [24, 24, 16, 12, 16, 20, 20, 18, 14, 14, 18, 12, 12, 12, 12, 16, 18];
-    const getCellLines = (text: string, width: number) => pdf.splitTextToSize(text, Math.max(4, width - 2));
+    const pagePxW = 4200;
+    const marginX = 36;
+    const marginY = 24;
+    const titleY = marginY + 26;
+    const metaY = titleY + 34;
+    const tableY = metaY + 34;
+    const rowH = 62;
+    const colWidths = [360, 360, 240, 180, 240, 240, 240, 220, 200, 200, 240, 180, 180, 180, 180, 220, 270];
 
-    let y = marginY;
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(12);
-    pdf.text('L&E Costing Sheet (Preliminary)', marginX, y);
-    y += 6;
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8);
-    pdf.text(`Project: ${docDetails.projectName || '-'}   Location: ${docDetails.location || '-'}   Generated: ${new Date().toLocaleString('th-TH')}`, marginX, y);
-    y += 5;
+    const lines: string[] = [];
+    const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+    const svgHeight = tableY + rowH * (bodyRows.length + 2) + 260;
+    const push = (line: string) => lines.push(line);
 
-    const drawRow = (cells: Array<string | number>, isHeader = false) => {
-      const linesByCell = cells.map((cell, idx) => getCellLines(String(cell), colWidths[idx]));
-      const maxLines = Math.max(...linesByCell.map((lines) => lines.length), 1);
-      const rowHeight = Math.max(5, maxLines * 2.8 + 1.4);
+    push(`<svg width="${pagePxW}" height="${svgHeight}" viewBox="0 0 ${pagePxW} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">`);
+    push('<rect width="100%" height="100%" fill="white"/>');
+    push('<style>.th{font:700 26px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.td{font:400 20px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.head{font:700 18px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}</style>');
 
-      if (y + rowHeight > pageHeight - marginY) {
-        pdf.addPage('a3', 'landscape');
-        y = marginY;
-      }
+    push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
+    const meta = `Project: ${docDetails.projectName || '-'}   Location: ${docDetails.location || '-'}   Generated: ${new Date().toLocaleString('th-TH')}`;
+    push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
 
-      let x = marginX;
-      cells.forEach((cell, idx) => {
-        const width = colWidths[idx];
-        pdf.setDrawColor(170, 170, 170);
-        if (isHeader) {
-          pdf.setFillColor(235, 241, 247);
-          pdf.rect(x, y, width, rowHeight, 'FD');
-          pdf.setFont('helvetica', 'bold');
+    let y = tableY;
+    let x = marginX;
+    headers.forEach((header, idx) => {
+      const w = colWidths[idx];
+      push(`<rect x="${x}" y="${y}" width="${w}" height="${rowH}" fill="#e5edf6" stroke="#9ca3af"/>`);
+      push(`<text x="${x + 8}" y="${y + 38}" class="head">${escapeSvgText(String(header))}</text>`);
+      x += w;
+    });
+
+    bodyRows.forEach((row, rowIdx) => {
+      const rowY = tableY + rowH * (rowIdx + 1);
+      let rowX = marginX;
+      row.forEach((cell, colIdx) => {
+        const w = colWidths[colIdx];
+        const value = String(cell);
+        const isNumeric = /^-?\d+(?:\.\d+)?$/.test(value);
+        push(`<rect x="${rowX}" y="${rowY}" width="${w}" height="${rowH}" fill="white" stroke="#c4c4c4"/>`);
+        if (isNumeric) {
+          push(`<text x="${rowX + w - 8}" y="${rowY + 38}" text-anchor="end" class="td">${escapeSvgText(value)}</text>`);
         } else {
-          pdf.rect(x, y, width, rowHeight);
-          pdf.setFont('helvetica', 'normal');
+          push(`<text x="${rowX + 8}" y="${rowY + 38}" class="td">${escapeSvgText(value)}</text>`);
         }
-
-        const lines = linesByCell[idx];
-        const isNumeric = typeof cell === 'number' || /^-?\d+(?:\.\d+)?$/.test(String(cell));
-        if (isNumeric && !isHeader) {
-          pdf.text(lines, x + width - 1, y + 3.4, { align: 'right', baseline: 'top' });
-        } else {
-          pdf.text(lines, x + 1, y + 3.4, { baseline: 'top' });
-        }
-        x += width;
+        rowX += w;
       });
+    });
 
-      y += rowHeight;
-    };
+    const noteY = tableY + rowH * (bodyRows.length + 1) + 32;
+    push(`<text x="${marginX}" y="${noteY}" class="th">${escapeSvgText('Please note that:')}</text>`);
+    push(`<text x="${marginX}" y="${noteY + 36}" class="td">${escapeSvgText('- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์')}</text>`);
+    push(`<text x="${marginX}" y="${noteY + 66}" class="td">${escapeSvgText('- รับประกันสินค้า 2 ปี')}</text>`);
+    push(`<text x="${marginX}" y="${noteY + 96}" class="td">${escapeSvgText('- ราคาอาจปรับตามหน้างานจริง')}</text>`);
 
-    drawRow(headers, true);
-    bodyRows.forEach((row) => drawRow(row));
+    push('</svg>');
 
-    y += 3;
-    if (y + 16 > pageHeight - marginY) {
-      pdf.addPage('a3', 'landscape');
-      y = marginY;
+    try {
+      const pricingImage = await svgToPng(lines.join(''), TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      pdf.addImage(pricingImage, 'PNG', 0, 0, 420, 297);
+      pdf.save(`${docDetails.projectName || 'pricing'}_Pricing_Report.pdf`);
+    } catch (error) {
+      console.error('Failed to export pricing PDF:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`ไม่สามารถสร้างไฟล์ PDF ได้: ${message}`);
     }
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(9);
-    pdf.text('Please note that:', marginX, y);
-    y += 4;
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(8);
-    pdf.text('- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์', marginX, y);
-    y += 3.5;
-    pdf.text('- รับประกันสินค้า 2 ปี', marginX, y);
-    y += 3.5;
-    pdf.text('- ราคาอาจปรับตามหน้างานจริง', marginX, y);
-
-    pdf.save(`${docDetails.projectName || 'pricing'}_Pricing_Report.pdf`);
   };
 
   const renderTemplatePdf = async (targetPages: PageData[], exportWidth: number, exportHeight: number) => {
