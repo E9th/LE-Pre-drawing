@@ -33,8 +33,9 @@ interface FormLampItem {
   file: File | null;
 }
 
-const TEMPLATE_DOWNLOAD_WIDTH = 2100;
-const TEMPLATE_DOWNLOAD_HEIGHT = 1484;
+// Higher render resolution for crisper user-downloaded PDFs.
+const TEMPLATE_DOWNLOAD_WIDTH = 4200;
+const TEMPLATE_DOWNLOAD_HEIGHT = 2968;
 const TEMPLATE_API_WIDTH = 1050;
 const TEMPLATE_API_HEIGHT = 742;
 
