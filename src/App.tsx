@@ -103,6 +103,8 @@ const getNextShapeName = (lamps: FormLampItem[]): string => {
   return `SC-${String(maxSeq + 1).padStart(2, '0')}`;
 };
 
+const normalizeShapeName = (name: string): string => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
 const Input = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
@@ -1506,7 +1508,24 @@ Use Chain-of-Thought reasoning to:
 
   const effectiveTemplatePages = useMemo(() => {
     const formIds = new Set(formTemplatePages.map(page => page.id));
-    const merged = formTemplatePages.map(page => pages.find(customPage => customPage.id === page.id) || page);
+    const merged = formTemplatePages.map((page) => {
+      const customPage = pages.find((p) => p.id === page.id);
+      if (!customPage) return page;
+      // Keep planner-generated drawing, but always use latest form data for pricing and summary fields.
+      return {
+        ...customPage,
+        bbW: page.bbW,
+        bbH: page.bbH,
+        moduleCount: page.moduleCount,
+        name: page.name,
+        q: page.q,
+        h: page.h,
+        d: page.d,
+        f: page.f,
+        t: page.t,
+        exactAreaSqm: page.exactAreaSqm,
+      };
+    });
     const withPlannerDraft = merged.map(page => {
       if (!plannerDraftPage || page.id !== plannerDraftPage.id) return page;
       return plannerDraftPage;
@@ -1849,6 +1868,13 @@ Use Chain-of-Thought reasoning to:
     setFormLamps(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
   };
 
+  const updateLampShapeName = (id: string, value: string) => {
+    const normalized = normalizeShapeName(value);
+    const isDuplicate = normalized.length > 0 && formLamps.some((lamp) => lamp.id !== id && normalizeShapeName(lamp.shapeName) === normalized);
+    if (isDuplicate) return;
+    updateFormLamp(id, { shapeName: value });
+  };
+
   const calculateModulesPerLamp = useCallback((lamp: FormLampItem): number => {
     const width = Math.max(1, lamp.w || 0);
     const height = Math.max(1, lamp.l || 0);
@@ -1972,6 +1998,10 @@ Use Chain-of-Thought reasoning to:
   const getLampMissingFields = (lamp: FormLampItem): string[] => {
     const missing: string[] = [];
     if (!lamp.shapeName.trim()) missing.push('Type');
+    const normalizedShapeName = normalizeShapeName(lamp.shapeName);
+    if (normalizedShapeName && formLamps.some((item) => item.id !== lamp.id && normalizeShapeName(item.shapeName) === normalizedShapeName)) {
+      missing.push('Type ซ้ำ');
+    }
     if (!lamp.objectShape) missing.push('Object Shape');
     if (!lamp.h.trim() || parseHeightMeters(lamp.h) <= 0) missing.push('ความสูงหน้างาน (ม.)');
     if (!Number.isFinite(lamp.w) || lamp.w <= 0) missing.push('กว้าง (มม.)');
@@ -2302,7 +2332,7 @@ Use Chain-of-Thought reasoning to:
                               if (!prevLamp) return;
                               updateFormLamp(lamp.id, {
                                 objectShape: prevLamp.objectShape,
-                                shapeName: prevLamp.shapeName,
+                                shapeName: getNextShapeName(formLamps),
                                 w: prevLamp.w,
                                 l: prevLamp.l,
                                 innerDia: prevLamp.innerDia,
@@ -2334,7 +2364,7 @@ Use Chain-of-Thought reasoning to:
                     <p className="mb-3 text-xs text-neutral-600">หน่วยของรายการนี้: สูง = ม., กว้าง/ยาว = มม.</p>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <TextInput label="Type" required invalid={missingFields.includes('Type')} value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
+                      <TextInput label="Type" required invalid={missingFields.includes('Type') || missingFields.includes('Type ซ้ำ')} value={lamp.shapeName} onChange={(v) => updateLampShapeName(lamp.id, v)} />
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Object Shape<span className="text-red-600"> *</span></label>
                         <select
