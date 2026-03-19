@@ -975,6 +975,13 @@ Use Chain-of-Thought reasoning to:
 
     const f = (n: number) => Number.isFinite(n) ? Number(n.toFixed(4)).toString() : '0';
     const pt = (x: number, y: number) => `${f(x)},${f(y)}`;
+    const cadModuleBlockName = '1';
+    const cadModuleBlockWidth = 44;
+    const cadModuleBlockHeight = 38;
+    const targetModuleWidth = modW > 0 ? modW : cadModuleBlockWidth;
+    const targetModuleHeight = modH > 0 ? modH : cadModuleBlockHeight;
+    const blockScaleX = targetModuleWidth / cadModuleBlockWidth;
+    const blockScaleY = targetModuleHeight / cadModuleBlockHeight;
 
     const buildShapePath = (lamp: FormLampItem, width: number, height: number, thickness: number): string => {
       const innerDia = Math.max(10, Math.min(width - 10, lamp.innerDia || Math.round(width * 0.5)));
@@ -1014,7 +1021,7 @@ Use Chain-of-Thought reasoning to:
       let minDyLocal = Infinity;
       let modYLocal: { x: number; y: number; w: number; h: number } | null = null;
 
-      if (modW <= 0 || modH <= 0 || currentSpaceX <= 0 || currentSpaceY <= 0) {
+      if (targetModuleWidth <= 0 || targetModuleHeight <= 0 || currentSpaceX <= 0 || currentSpaceY <= 0) {
         return { modules, minDxLocal, minDyLocal, modXLocal, modYLocal };
       }
 
@@ -1023,29 +1030,29 @@ Use Chain-of-Thought reasoning to:
       const testCtx = testCanvas.getContext('2d');
       if (!testCtx) return { modules, minDxLocal, minDyLocal, modXLocal, modYLocal };
 
-      const ny = Math.floor((height - modH) / currentSpaceY) + 1;
+      const ny = Math.floor((height - targetModuleHeight) / currentSpaceY) + 1;
       if (ny <= 0) return { modules, minDxLocal, minDyLocal, modXLocal, modYLocal };
 
-      const arrH = (ny - 1) * currentSpaceY + modH;
-      const startY = (height - arrH) / 2 + modH / 2;
+      const arrH = (ny - 1) * currentSpaceY + targetModuleHeight;
+      const startY = (height - arrH) / 2 + targetModuleHeight / 2;
 
       let arrW = 0;
       let nxEven = 0;
       let nxOdd = 0;
       if (layoutType === 'grid') {
-        nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
+        nxEven = Math.floor((width - targetModuleWidth) / currentSpaceX) + 1;
         nxOdd = nxEven;
-        if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + modW;
+        if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + targetModuleWidth;
       } else {
-        nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
-        nxOdd = Math.floor((width - modW - currentSpaceX / 2) / currentSpaceX) + 1;
-        const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + modW : 0;
-        const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + modW : 0;
+        nxEven = Math.floor((width - targetModuleWidth) / currentSpaceX) + 1;
+        nxOdd = Math.floor((width - targetModuleWidth - currentSpaceX / 2) / currentSpaceX) + 1;
+        const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + targetModuleWidth : 0;
+        const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + targetModuleWidth : 0;
         arrW = Math.max(wEven, wOdd);
       }
 
       if (arrW <= 0) return { modules, minDxLocal, minDyLocal, modXLocal, modYLocal };
-      const baseStartX = (width - arrW) / 2 + modW / 2;
+      const baseStartX = (width - arrW) / 2 + targetModuleWidth / 2;
 
       for (let j = 0; j < ny; j++) {
         const isOddRow = j % 2 !== 0;
@@ -1056,19 +1063,19 @@ Use Chain-of-Thought reasoning to:
           const cxm = baseStartX + offsetX + i * currentSpaceX;
           const cym = startY + j * currentSpaceY;
           const corners = [
-            { x: cxm - modW / 2, y: cym - modH / 2 },
-            { x: cxm + modW / 2, y: cym - modH / 2 },
-            { x: cxm + modW / 2, y: cym + modH / 2 },
-            { x: cxm - modW / 2, y: cym + modH / 2 },
+            { x: cxm - targetModuleWidth / 2, y: cym - targetModuleHeight / 2 },
+            { x: cxm + targetModuleWidth / 2, y: cym - targetModuleHeight / 2 },
+            { x: cxm + targetModuleWidth / 2, y: cym + targetModuleHeight / 2 },
+            { x: cxm - targetModuleWidth / 2, y: cym + targetModuleHeight / 2 },
           ];
           const inside = corners.every((p) => testCtx.isPointInPath(path, p.x, p.y, 'evenodd'));
           if (!inside) continue;
-          const mod = { x: cxm - modW / 2, y: cym - modH / 2, w: modW, h: modH };
+          const mod = { x: cxm - targetModuleWidth / 2, y: cym - targetModuleHeight / 2, w: targetModuleWidth, h: targetModuleHeight };
           modules.push(mod);
 
           const centerX = cxm;
           const centerY = cym;
-          const dx = centerX - width / 2;
+          const dx = mod.x - width / 2;
           if (dx > 0.1) {
             if (dx < minDxLocal - 0.1) {
               minDxLocal = dx;
@@ -1080,7 +1087,7 @@ Use Chain-of-Thought reasoning to:
             }
           }
 
-          const dy = centerY - height / 2;
+          const dy = mod.y - height / 2;
           if (dy > 0.1) {
             if (dy < minDyLocal - 0.1) {
               minDyLocal = dy;
@@ -1156,7 +1163,9 @@ Use Chain-of-Thought reasoning to:
     lines.push('_.LUPREC 2');
     lines.push('_.DIMDEC 0');
     lines.push('_.DIMDSEP .');
-    lines.push('_.DIMSCALE 100');
+    lines.push('_.DIMSCALE 1');
+    lines.push('_.DIMTXT 50');
+    lines.push('_.DIMASZ 25');
     lines.push('_.-LAYER M BOUNDARY C 7 BOUNDARY M MODULE C 3 MODULE M DIM C 2 DIM S BOUNDARY');
     lines.push('');
 
@@ -1316,11 +1325,13 @@ Use Chain-of-Thought reasoning to:
       lines.push('_.LAYER S MODULE');
       lines.push('');
       modules.forEach((mod) => {
-        lines.push(`_.RECTANG ${pt(ox + mod.x, oy + mod.y)} ${pt(ox + mod.x + mod.w, oy + mod.y + mod.h)}`);
-        lines.push(`_.POINT ${pt(ox + mod.x + mod.w / 2, oy + mod.y + mod.h / 2)}`);
+        const cx = ox + mod.x + mod.w / 2;
+        const cy = oy + mod.y + mod.h / 2;
+        // Insert user-provided module block from template DWG using center insertion point.
+        lines.push(`_.-INSERT ${cadModuleBlockName} ${pt(cx, cy)} ${f(blockScaleX)} ${f(blockScaleY)} 0`);
       });
 
-      const dimOffset = Math.max(600, Math.max(w, h) * 0.15);
+      const dimOffset = Math.max(120, Math.max(w, h) * 0.08);
       lines.push('_.LAYER S DIM');
       lines.push('');
       lines.push(`_.DIMLINEAR ${pt(ox, oy + h)} ${pt(ox + w, oy + h)} ${pt(ox + w / 2, oy + h + dimOffset)}`);
@@ -1328,12 +1339,12 @@ Use Chain-of-Thought reasoning to:
 
       if (showCenterLines && modX && Number.isFinite(minDx) && minDx > 0.1) {
         const c = ox + w / 2;
-        const mx = ox + modX.x + modX.w / 2;
+        const mx = ox + modX.x;
         lines.push(`_.DIMLINEAR ${pt(c, oy + h)} ${pt(mx, oy + h)} ${pt((c + mx) / 2, oy + h + dimOffset * 0.6)}`);
       }
       if (showCenterLines && modY && Number.isFinite(minDy) && minDy > 0.1) {
         const c = oy + h / 2;
-        const my = oy + modY.y + modY.h / 2;
+        const my = oy + modY.y;
         lines.push(`_.DIMLINEAR ${pt(ox, c)} ${pt(ox, my)} ${pt(ox - dimOffset * 0.6, (c + my) / 2)}`);
       }
 
