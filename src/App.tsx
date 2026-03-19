@@ -92,6 +92,10 @@ const getModuleColorsByLightTemp = (lightTemp: string): { fill: string; stroke: 
   return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
 };
 
+const LED_MODULE_WATT = 1.44;
+const SWITCHING_POWER_WATT = 150;
+const SWITCHING_PRICE_PER_UNIT = 0;
+
 const getNextShapeName = (lamps: FormLampItem[]): string => {
   const maxSeq = lamps.reduce((max, lamp) => {
     const match = String(lamp.shapeName || '').trim().match(/^SC-(\d+)$/i);
@@ -1614,6 +1618,42 @@ Use Chain-of-Thought reasoning to:
     });
   }, [effectiveTemplatePages, pricingSummary]);
 
+  const pricingExportRows = useMemo(() => {
+    const pageById = new Map<string, PageData>(effectiveTemplatePages.map((p) => [p.id, p]));
+    return pricingByType.map((item) => {
+      const page = pageById.get(item.id);
+      const widthM = (page?.bbW || 0) / 1000;
+      const heightM = (page?.bbH || 0) / 1000;
+      const areaPerLamp = page?.exactAreaSqm || 0;
+      const modulesPerLamp = Math.max(1, page?.moduleCount || 1);
+      const ledWattPerLamp = modulesPerLamp * LED_MODULE_WATT;
+      const ledWattPerType = item.totalModulesPerType * LED_MODULE_WATT;
+      const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
+      const switchingPerType = Math.max(1, Math.ceil(ledWattPerType / SWITCHING_POWER_WATT));
+      const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
+
+      return {
+        typeName: item.name,
+        sizeMetersText: `${widthM.toFixed(2)} x ${heightM.toFixed(2)}`,
+        areaPerLamp,
+        qty: item.q,
+        totalAreaPerType: item.totalAreaPerType,
+        vinylCost: item.fabricCostPerType,
+        structureCost: item.structureCostPerType,
+        installationCost: item.scaffoldCostPerType,
+        modulesPerLamp,
+        totalModules: item.totalModulesPerType,
+        modulePricePerType: item.moduleCostPerType,
+        ledWattPerLamp,
+        ledWattPerType,
+        switchingPerLamp,
+        switchingPerType,
+        switchingPricePerType,
+        summaryPricePerType: item.estimatedPricePerType,
+      };
+    });
+  }, [effectiveTemplatePages, pricingByType]);
+
   const csvEscape = (value: string | number) => {
     const str = String(value ?? '');
     if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
@@ -1622,8 +1662,37 @@ Use Chain-of-Thought reasoning to:
 
   const buildPricingCsvText = useCallback(() => {
     const generatedAt = new Date().toLocaleString('th-TH');
+    const totals = pricingExportRows.reduce(
+      (acc, row) => ({
+        qty: acc.qty + row.qty,
+        totalAreaPerType: acc.totalAreaPerType + row.totalAreaPerType,
+        vinylCost: acc.vinylCost + row.vinylCost,
+        structureCost: acc.structureCost + row.structureCost,
+        installationCost: acc.installationCost + row.installationCost,
+        totalModules: acc.totalModules + row.totalModules,
+        modulePricePerType: acc.modulePricePerType + row.modulePricePerType,
+        ledWattPerType: acc.ledWattPerType + row.ledWattPerType,
+        switchingPerType: acc.switchingPerType + row.switchingPerType,
+        switchingPricePerType: acc.switchingPricePerType + row.switchingPricePerType,
+        summaryPricePerType: acc.summaryPricePerType + row.summaryPricePerType,
+      }),
+      {
+        qty: 0,
+        totalAreaPerType: 0,
+        vinylCost: 0,
+        structureCost: 0,
+        installationCost: 0,
+        totalModules: 0,
+        modulePricePerType: 0,
+        ledWattPerType: 0,
+        switchingPerType: 0,
+        switchingPricePerType: 0,
+        summaryPricePerType: 0,
+      }
+    );
+
     const rows: Array<Array<string | number>> = [
-      ['L&E Preliminary Pricing Report'],
+      ['L&E Costing Sheet (Preliminary)'],
       ['Generated At', generatedAt],
       ['Project Name', docDetails.projectName || '-'],
       ['Project Number', docDetails.projectNumber || '-'],
@@ -1631,51 +1700,75 @@ Use Chain-of-Thought reasoning to:
       ['AO / Team', aoName || '-'],
       ['Structure', structure || '-'],
       [],
-      ['Summary'],
-      ['Total Area (sqm)', pricingSummary.totalAreaSqm.toFixed(4)],
-      ['Total Modules (pcs)', pricingSummary.totalModules],
-      ['Fabric Cost (THB)', pricingSummary.fabricCost.toFixed(2)],
-      ['Structure Cost (THB)', pricingSummary.structureCost.toFixed(2)],
-      ['Scaffolding Cost (THB)', pricingSummary.scaffoldCost.toFixed(2)],
-      ['Module Cost @ 21 THB (THB)', pricingSummary.moduleCost.toFixed(2)],
-      ['Subtotal Before GP (THB)', pricingSummary.subtotalBeforeGP.toFixed(2)],
-      ['Estimated Price = Subtotal / 0.7 (THB)', pricingSummary.estimatedPrice.toFixed(2)],
-      [],
-      ['By Type'],
       [
-        'No.',
-        'Type Name',
+        'Type',
+        'ขนาด (มม. x มม.)',
+        'พื้นที่/โคม (ตร.ม.)',
         'Qty (pcs)',
-        'Total Area (sqm)',
-        'Total Modules (pcs)',
-        'Fabric Cost (THB)',
+        'พื้นที่รวม (ตร.ม.)',
+        'Vinyl translucent cost',
         'Structure Cost (THB)',
-        'Scaffolding Cost (THB)',
-        'Module Cost (THB)',
-        'Subtotal Before GP (THB)',
-        'Estimated Price / Type (THB)'
+        'Installation Cost (THB)',
+        'จำนวน module/โคม',
+        'จำนวน module รวม',
+        'ราคา module/type',
+        'Watt LED/โคม',
+        'Watt LED/Type',
+        'Switching จำนวน/โคม',
+        'Switching จำนวน/Type',
+        'ราคา Switching/type',
+        'Summary price/type',
       ],
     ];
 
-    pricingByType.forEach((item) => {
+    pricingExportRows.forEach((item) => {
       rows.push([
-        item.index,
-        item.name,
-        item.q,
-        item.totalAreaPerType.toFixed(4),
-        item.totalModulesPerType,
-        item.fabricCostPerType.toFixed(2),
-        item.structureCostPerType.toFixed(2),
-        item.scaffoldCostPerType.toFixed(2),
-        item.moduleCostPerType.toFixed(2),
-        item.subtotalBeforeGPPerType.toFixed(2),
-        item.estimatedPricePerType.toFixed(2),
+        item.typeName,
+        item.sizeMetersText,
+        item.areaPerLamp.toFixed(3),
+        item.qty,
+        item.totalAreaPerType.toFixed(3),
+        item.vinylCost.toFixed(2),
+        item.structureCost.toFixed(2),
+        item.installationCost.toFixed(2),
+        item.modulesPerLamp,
+        item.totalModules,
+        item.modulePricePerType.toFixed(2),
+        item.ledWattPerLamp.toFixed(2),
+        item.ledWattPerType.toFixed(2),
+        item.switchingPerLamp,
+        item.switchingPerType,
+        item.switchingPricePerType.toFixed(2),
+        item.summaryPricePerType.toFixed(2),
       ]);
     });
 
     rows.push([]);
-    rows.push(['Note']);
-    rows.push(['Per-type area-based allocation uses total area ratio for fabric/structure/scaffold, and actual module count for module cost.']);
+    rows.push([
+      'Totally',
+      '-',
+      '-',
+      totals.qty,
+      totals.totalAreaPerType.toFixed(3),
+      totals.vinylCost.toFixed(2),
+      totals.structureCost.toFixed(2),
+      totals.installationCost.toFixed(2),
+      '-',
+      totals.totalModules,
+      totals.modulePricePerType.toFixed(2),
+      '-',
+      totals.ledWattPerType.toFixed(2),
+      '-',
+      totals.switchingPerType,
+      totals.switchingPricePerType.toFixed(2),
+      totals.summaryPricePerType.toFixed(2),
+    ]);
+    rows.push([]);
+    rows.push(['Please note that:']);
+    rows.push(['- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์']);
+    rows.push(['- รับประกันสินค้า 2 ปี']);
+    rows.push(['- ราคาอาจปรับตามหน้างานจริง']);
+    rows.push([`- ค่า Switching คิดที่ ${SWITCHING_PRICE_PER_UNIT.toFixed(2)} บาท/ชุด (สามารถปรับได้)`]);
 
     return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
   }, [
@@ -1684,26 +1777,150 @@ Use Chain-of-Thought reasoning to:
     docDetails.location,
     aoName,
     structure,
-    pricingSummary,
-    pricingByType,
+    pricingExportRows,
   ]);
 
-  const downloadPricingCSV = () => {
+  const downloadPricingPDF = () => {
     if (effectiveTemplatePages.length === 0) {
       alert('ยังไม่มีรายการสำหรับสร้างตารางคำนวณ');
       return;
     }
 
-    const csv = buildPricingCsvText();
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${docDetails.projectName || 'pricing'}_Pricing_Report.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const totals = pricingExportRows.reduce(
+      (acc, row) => ({
+        qty: acc.qty + row.qty,
+        totalAreaPerType: acc.totalAreaPerType + row.totalAreaPerType,
+        vinylCost: acc.vinylCost + row.vinylCost,
+        structureCost: acc.structureCost + row.structureCost,
+        installationCost: acc.installationCost + row.installationCost,
+        totalModules: acc.totalModules + row.totalModules,
+        modulePricePerType: acc.modulePricePerType + row.modulePricePerType,
+        ledWattPerType: acc.ledWattPerType + row.ledWattPerType,
+        switchingPerType: acc.switchingPerType + row.switchingPerType,
+        switchingPricePerType: acc.switchingPricePerType + row.switchingPricePerType,
+        summaryPricePerType: acc.summaryPricePerType + row.summaryPricePerType,
+      }),
+      {
+        qty: 0,
+        totalAreaPerType: 0,
+        vinylCost: 0,
+        structureCost: 0,
+        installationCost: 0,
+        totalModules: 0,
+        modulePricePerType: 0,
+        ledWattPerType: 0,
+        switchingPerType: 0,
+        switchingPricePerType: 0,
+        summaryPricePerType: 0,
+      }
+    );
+
+    const headers = [
+      'Type', 'ขนาด (ม. x ม.)', 'พื้นที่/โคม', 'Qty', 'พื้นที่รวม', 'Vinyl', 'Structure', 'Install',
+      'Mod/โคม', 'Mod รวม', 'ราคา module', 'W/โคม', 'W/Type', 'SW/โคม', 'SW/Type', 'ราคา SW', 'Summary',
+    ];
+
+    const bodyRows = pricingExportRows.map((row) => [
+      row.typeName,
+      row.sizeMetersText,
+      row.areaPerLamp.toFixed(2),
+      row.qty,
+      row.totalAreaPerType.toFixed(2),
+      row.vinylCost.toFixed(0),
+      row.structureCost.toFixed(0),
+      row.installationCost.toFixed(0),
+      row.modulesPerLamp,
+      row.totalModules,
+      row.modulePricePerType.toFixed(0),
+      row.ledWattPerLamp.toFixed(1),
+      row.ledWattPerType.toFixed(1),
+      row.switchingPerLamp,
+      row.switchingPerType,
+      row.switchingPricePerType.toFixed(0),
+      row.summaryPricePerType.toFixed(0),
+    ]);
+
+    bodyRows.push([
+      'Totally', '-', '-', totals.qty, totals.totalAreaPerType.toFixed(2), totals.vinylCost.toFixed(0),
+      totals.structureCost.toFixed(0), totals.installationCost.toFixed(0), '-', totals.totalModules,
+      totals.modulePricePerType.toFixed(0), '-', totals.ledWattPerType.toFixed(1), '-', totals.switchingPerType,
+      totals.switchingPricePerType.toFixed(0), totals.summaryPricePerType.toFixed(0),
+    ]);
+
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+    const pageHeight = 297;
+    const marginX = 8;
+    const marginY = 8;
+    const colWidths = [24, 24, 16, 12, 16, 20, 20, 18, 14, 14, 18, 12, 12, 12, 12, 16, 18];
+    const getCellLines = (text: string, width: number) => pdf.splitTextToSize(text, Math.max(4, width - 2));
+
+    let y = marginY;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(12);
+    pdf.text('L&E Costing Sheet (Preliminary)', marginX, y);
+    y += 6;
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.text(`Project: ${docDetails.projectName || '-'}   Location: ${docDetails.location || '-'}   Generated: ${new Date().toLocaleString('th-TH')}`, marginX, y);
+    y += 5;
+
+    const drawRow = (cells: Array<string | number>, isHeader = false) => {
+      const linesByCell = cells.map((cell, idx) => getCellLines(String(cell), colWidths[idx]));
+      const maxLines = Math.max(...linesByCell.map((lines) => lines.length), 1);
+      const rowHeight = Math.max(5, maxLines * 2.8 + 1.4);
+
+      if (y + rowHeight > pageHeight - marginY) {
+        pdf.addPage('a3', 'landscape');
+        y = marginY;
+      }
+
+      let x = marginX;
+      cells.forEach((cell, idx) => {
+        const width = colWidths[idx];
+        pdf.setDrawColor(170, 170, 170);
+        if (isHeader) {
+          pdf.setFillColor(235, 241, 247);
+          pdf.rect(x, y, width, rowHeight, 'FD');
+          pdf.setFont('helvetica', 'bold');
+        } else {
+          pdf.rect(x, y, width, rowHeight);
+          pdf.setFont('helvetica', 'normal');
+        }
+
+        const lines = linesByCell[idx];
+        const isNumeric = typeof cell === 'number' || /^-?\d+(?:\.\d+)?$/.test(String(cell));
+        if (isNumeric && !isHeader) {
+          pdf.text(lines, x + width - 1, y + 3.4, { align: 'right', baseline: 'top' });
+        } else {
+          pdf.text(lines, x + 1, y + 3.4, { baseline: 'top' });
+        }
+        x += width;
+      });
+
+      y += rowHeight;
+    };
+
+    drawRow(headers, true);
+    bodyRows.forEach((row) => drawRow(row));
+
+    y += 3;
+    if (y + 16 > pageHeight - marginY) {
+      pdf.addPage('a3', 'landscape');
+      y = marginY;
+    }
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9);
+    pdf.text('Please note that:', marginX, y);
+    y += 4;
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8);
+    pdf.text('- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์', marginX, y);
+    y += 3.5;
+    pdf.text('- รับประกันสินค้า 2 ปี', marginX, y);
+    y += 3.5;
+    pdf.text('- ราคาอาจปรับตามหน้างานจริง', marginX, y);
+
+    pdf.save(`${docDetails.projectName || 'pricing'}_Pricing_Report.pdf`);
   };
 
   const renderTemplatePdf = async (targetPages: PageData[], exportWidth: number, exportHeight: number) => {
@@ -2484,11 +2701,11 @@ Use Chain-of-Thought reasoning to:
                 {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${effectiveTemplatePages.length})`}
               </button>
               <button
-                onClick={downloadPricingCSV}
+                onClick={downloadPricingPDF}
                 disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
                 className="rounded border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
               >
-                ดาวน์โหลดตารางคำนวณ (CSV)
+                ดาวน์โหลดตารางคำนวณ (PDF)
               </button>
               <button
                 onClick={submitChecklistForm}
@@ -3331,11 +3548,11 @@ Use Chain-of-Thought reasoning to:
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowTemplateSettings(false)} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 rounded">Cancel</button>
                 <button
-                  onClick={downloadPricingCSV}
+                  onClick={downloadPricingPDF}
                   disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
                   className="px-4 py-2 text-sm font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded disabled:opacity-50"
                 >
-                  Download Calculation CSV
+                  Download Calculation PDF
                 </button>
                 <button 
                   onClick={generateTemplatePDF} 
