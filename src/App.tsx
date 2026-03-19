@@ -92,6 +92,17 @@ const getModuleColorsByLightTemp = (lightTemp: string): { fill: string; stroke: 
   return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
 };
 
+const getNextShapeName = (lamps: FormLampItem[]): string => {
+  const maxSeq = lamps.reduce((max, lamp) => {
+    const match = String(lamp.shapeName || '').trim().match(/^SC-(\d+)$/i);
+    if (!match) return max;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return max;
+    return Math.max(max, value);
+  }, 0);
+  return `SC-${String(maxSeq + 1).padStart(2, '0')}`;
+};
+
 const Input = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
@@ -1842,8 +1853,11 @@ Use Chain-of-Thought reasoning to:
     const width = Math.max(1, lamp.w || 0);
     const height = Math.max(1, lamp.l || 0);
     const innerDia = Math.max(1, Math.min(lamp.innerDia || 1, width - 1));
+    const depthSpacing = getSpacingByDepth(lamp.d || '');
+    const currentSpaceX = depthSpacing?.x ?? spaceX;
+    const currentSpaceY = depthSpacing?.y ?? spaceY;
 
-    if (modW <= 0 || modH <= 0 || spaceX <= 0 || spaceY <= 0) return 1;
+    if (modW <= 0 || modH <= 0 || currentSpaceX <= 0 || currentSpaceY <= 0) return 1;
 
     const shapePathByType: Record<ShapeType, string> = {
       rectangle: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
@@ -1868,24 +1882,24 @@ Use Chain-of-Thought reasoning to:
     const testCtx = testCanvas.getContext('2d');
     if (!testCtx) return 1;
 
-    const ny = Math.floor((height - modH) / spaceY) + 1;
+    const ny = Math.floor((height - modH) / currentSpaceY) + 1;
     if (ny <= 0) return 1;
 
-    const arrH = (ny - 1) * spaceY + modH;
+    const arrH = (ny - 1) * currentSpaceY + modH;
     const startY = (height - arrH) / 2 + modH / 2;
 
     let arrW = 0;
     let nxEven = 0;
     let nxOdd = 0;
     if (layoutType === 'grid') {
-      nxEven = Math.floor((width - modW) / spaceX) + 1;
+      nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
       nxOdd = nxEven;
-      if (nxEven > 0) arrW = (nxEven - 1) * spaceX + modW;
+      if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + modW;
     } else {
-      nxEven = Math.floor((width - modW) / spaceX) + 1;
-      nxOdd = Math.floor((width - modW - spaceX / 2) / spaceX) + 1;
-      const wEven = nxEven > 0 ? (nxEven - 1) * spaceX + modW : 0;
-      const wOdd = nxOdd > 0 ? spaceX / 2 + (nxOdd - 1) * spaceX + modW : 0;
+      nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
+      nxOdd = Math.floor((width - modW - currentSpaceX / 2) / currentSpaceX) + 1;
+      const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + modW : 0;
+      const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + modW : 0;
       arrW = Math.max(wEven, wOdd);
     }
 
@@ -1896,11 +1910,11 @@ Use Chain-of-Thought reasoning to:
     for (let j = 0; j < ny; j++) {
       const isOddRow = j % 2 !== 0;
       const nx = (layoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
-      const offsetX = (layoutType === 'staggered' && isOddRow) ? spaceX / 2 : 0;
+      const offsetX = (layoutType === 'staggered' && isOddRow) ? currentSpaceX / 2 : 0;
 
       for (let i = 0; i < nx; i++) {
-        const cx = baseStartX + offsetX + i * spaceX;
-        const cy = startY + j * spaceY;
+        const cx = baseStartX + offsetX + i * currentSpaceX;
+        const cy = startY + j * currentSpaceY;
         const corners = [
           { x: cx - modW / 2, y: cy - modH / 2 },
           { x: cx + modW / 2, y: cy - modH / 2 },
@@ -1929,23 +1943,25 @@ Use Chain-of-Thought reasoning to:
   }, [formLamps, calculateModulesPerLamp]);
 
   const addFormLamp = () => {
-    const nextLamp: FormLampItem = {
-      id: Math.random().toString(36).slice(2),
-      objectShape: 'rectangle',
-      shapeName: '',
-      w: 0,
-      l: 0,
-      innerDia: 500,
-      modulesPerLamp: 1,
-      q: 1,
-      h: '3',
-      d: '10 เซนติเมตร',
-      f: 'ผ้าใบขาว',
-      t: '3000K',
-      file: null,
-    };
-    setFormLamps(prev => [...prev, nextLamp]);
-    setPlannerLampId(nextLamp.id);
+    setFormLamps((prev) => {
+      const nextLamp: FormLampItem = {
+        id: Math.random().toString(36).slice(2),
+        objectShape: 'rectangle',
+        shapeName: getNextShapeName(prev),
+        w: 0,
+        l: 0,
+        innerDia: 500,
+        modulesPerLamp: 1,
+        q: 1,
+        h: '3',
+        d: '10 เซนติเมตร',
+        f: 'ผ้าใบขาว',
+        t: '3000K',
+        file: null,
+      };
+      setPlannerLampId(nextLamp.id);
+      return [...prev, nextLamp];
+    });
   };
 
   const removeFormLamp = (id: string) => {
@@ -2475,8 +2491,8 @@ Use Chain-of-Thought reasoning to:
         <div className="p-4 border-b border-neutral-200">
           <h1 className="text-lg font-semibold tracking-tight">Module Array Planner</h1>
           <p className="text-xs text-neutral-500 mt-1">Automate module distribution</p>
-          <button onClick={() => setAppView('form')} className="mt-3 rounded border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100">
-            กลับไปหน้าแบบฟอร์ม
+          <button onClick={() => setAppView('form')} className="mt-3 w-full rounded-lg border border-blue-700 bg-blue-700 px-3 py-2 text-sm font-semibold text-white shadow-md transition-colors hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300">
+            &lt; กลับไปหน้าแบบฟอร์ม
           </button>
         </div>
         
