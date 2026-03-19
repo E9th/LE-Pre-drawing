@@ -2015,6 +2015,7 @@ Use Chain-of-Thought reasoning to:
     ]);
 
     const pagePxW = 4200;
+    const pagePxH = 2970;
     const marginX = 36;
     const marginY = 24;
     const titleY = marginY + 26;
@@ -2022,58 +2023,183 @@ Use Chain-of-Thought reasoning to:
     const tableY = metaY + 34;
     const rowH = 62;
     const colWidths = [360, 360, 240, 180, 240, 240, 240, 220, 200, 200, 240, 180, 180, 180, 180, 220, 270];
+    const rowsPerPage = Math.max(1, Math.floor((pagePxH - tableY - 80) / rowH) - 1);
 
-    const lines: string[] = [];
-    const tableWidth = colWidths.reduce((a, b) => a + b, 0);
-    const svgHeight = tableY + rowH * (bodyRows.length + 2) + 260;
-    const push = (line: string) => lines.push(line);
+    const noteLines = [
+      'Please note that :',
+      '',
+      '- เข้าทำงาน ปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์',
+      '- รับประกันสินค้า 2 ปี',
+      '- ภายในระยะเวลารับประกัน มีการ Service บำรุงรักษา ทำความสะอาด และ ซ่อมแซมอุปกรณ์ 1 ครั้ง กรณีต่างจังหวัดจะมีค่าใช้จ่ายในการเดินทางเพิ่มเติม',
+      '- ราคานี้ไม่รวมค่าเดินทาง ค่าที่พัก (กรณีหน้างานไม่ได้อยู่ในกทม.และปริมณฑล) ค่าทำงานในเวลากลางคืน และค่านั่งร้าน โดยหากหน้างานมีความสูง 3 เมตรขึ้นไป หน้างานจะต้องเตรียมนั่งร้านไว้รอทีม stretch ceiling',
+      '- ราคา Summary price/type เป็นราคารวมจำนวนโคมทุกตัว ในแต่ละ type',
+      '- ราคาอาจมีการเปลี่ยนแปลงหลังจากสำรวจหน้างานจริง',
+    ];
 
-    push(`<svg width="${pagePxW}" height="${svgHeight}" viewBox="0 0 ${pagePxW} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">`);
-    push('<rect width="100%" height="100%" fill="white"/>');
-    push('<style>.th{font:700 26px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.td{font:400 20px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.head{font:700 18px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}</style>');
-
-    push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
     const meta = `Project: ${docDetails.projectName || '-'}   Location: ${docDetails.location || '-'}   Generated: ${new Date().toLocaleString('th-TH')}`;
-    push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
 
-    let y = tableY;
-    let x = marginX;
-    headers.forEach((header, idx) => {
-      const w = colWidths[idx];
-      push(`<rect x="${x}" y="${y}" width="${w}" height="${rowH}" fill="#e5edf6" stroke="#9ca3af"/>`);
-      push(`<text x="${x + 8}" y="${y + 38}" class="head">${escapeSvgText(String(header))}</text>`);
-      x += w;
-    });
-
-    bodyRows.forEach((row, rowIdx) => {
-      const rowY = tableY + rowH * (rowIdx + 1);
-      let rowX = marginX;
-      row.forEach((cell, colIdx) => {
-        const w = colWidths[colIdx];
-        const value = String(cell);
-        const isNumeric = /^-?\d+(?:\.\d+)?$/.test(value);
-        push(`<rect x="${rowX}" y="${rowY}" width="${w}" height="${rowH}" fill="white" stroke="#c4c4c4"/>`);
-        if (isNumeric) {
-          push(`<text x="${rowX + w - 8}" y="${rowY + 38}" text-anchor="end" class="td">${escapeSvgText(value)}</text>`);
+    const wrapByChars = (text: string, maxChars: number): string[] => {
+      const source = String(text || '').trim();
+      if (!source) return [''];
+      const words = source.split(/\s+/);
+      const lines: string[] = [];
+      let current = '';
+      words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        if (next.length <= maxChars) {
+          current = next;
         } else {
-          push(`<text x="${rowX + 8}" y="${rowY + 38}" class="td">${escapeSvgText(value)}</text>`);
+          if (current) lines.push(current);
+          if (word.length > maxChars) {
+            let rest = word;
+            while (rest.length > maxChars) {
+              lines.push(rest.slice(0, maxChars));
+              rest = rest.slice(maxChars);
+            }
+            current = rest;
+          } else {
+            current = word;
+          }
         }
-        rowX += w;
       });
+      if (current) lines.push(current);
+      return lines;
+    };
+
+    const noteWrappedLines = noteLines.flatMap((line, idx) => {
+      if (!line.trim()) return [''];
+      if (idx === 0) return [line];
+      return wrapByChars(line, 115);
     });
 
-    const noteY = tableY + rowH * (bodyRows.length + 1) + 32;
-    push(`<text x="${marginX}" y="${noteY}" class="th">${escapeSvgText('Please note that:')}</text>`);
-    push(`<text x="${marginX}" y="${noteY + 36}" class="td">${escapeSvgText('- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์')}</text>`);
-    push(`<text x="${marginX}" y="${noteY + 66}" class="td">${escapeSvgText('- รับประกันสินค้า 2 ปี')}</text>`);
-    push(`<text x="${marginX}" y="${noteY + 96}" class="td">${escapeSvgText('- ราคาอาจปรับตามหน้างานจริง')}</text>`);
+    const renderTablePageSvg = (
+      rowsChunk: Array<Array<string | number>>,
+      pageNo: number,
+      totalPages: number,
+      options?: { compact?: boolean; includeNotes?: boolean }
+    ): string => {
+      const compact = options?.compact ?? false;
+      const includeNotes = options?.includeNotes ?? false;
+      const titleFont = compact ? 22 : 26;
+      const textFont = compact ? 16 : 20;
+      const headFont = compact ? 14 : 18;
+      const rowHeight = compact ? 48 : rowH;
+      const textBaseline = compact ? 31 : 38;
 
-    push('</svg>');
+      const lines: string[] = [];
+      const push = (line: string) => lines.push(line);
+
+      push(`<svg width="${pagePxW}" height="${pagePxH}" viewBox="0 0 ${pagePxW} ${pagePxH}" xmlns="http://www.w3.org/2000/svg">`);
+      push('<rect width="100%" height="100%" fill="white"/>');
+      push(`<style>.th{font:700 ${titleFont}px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.td{font:400 ${textFont}px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.head{font:700 ${headFont}px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}</style>`);
+
+      push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
+      push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
+      push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
+
+      let y = tableY;
+      let x = marginX;
+      headers.forEach((header, idx) => {
+        const w = colWidths[idx];
+        push(`<rect x="${x}" y="${y}" width="${w}" height="${rowHeight}" fill="#e5edf6" stroke="#9ca3af"/>`);
+        push(`<text x="${x + 8}" y="${y + textBaseline}" class="head">${escapeSvgText(String(header))}</text>`);
+        x += w;
+      });
+
+      rowsChunk.forEach((row, rowIdx) => {
+        const rowY = tableY + rowHeight * (rowIdx + 1);
+        let rowX = marginX;
+        row.forEach((cell, colIdx) => {
+          const w = colWidths[colIdx];
+          const value = String(cell);
+          const isNumeric = /^-?\d+(?:\.\d+)?$/.test(value);
+          push(`<rect x="${rowX}" y="${rowY}" width="${w}" height="${rowHeight}" fill="white" stroke="#c4c4c4"/>`);
+          if (isNumeric) {
+            push(`<text x="${rowX + w - 8}" y="${rowY + textBaseline}" text-anchor="end" class="td">${escapeSvgText(value)}</text>`);
+          } else {
+            push(`<text x="${rowX + 8}" y="${rowY + textBaseline}" class="td">${escapeSvgText(value)}</text>`);
+          }
+          rowX += w;
+        });
+      });
+
+      if (includeNotes) {
+        const noteStartY = tableY + rowHeight * (rowsChunk.length + 1) + 34;
+        const noteStep = compact ? 38 : 52;
+        noteWrappedLines.forEach((line, idx) => {
+          if (!line.trim()) return;
+          const yPos = noteStartY + idx * noteStep;
+          const cls = idx === 0 ? 'th' : 'td';
+          push(`<text x="${marginX}" y="${yPos}" class="${cls}">${escapeSvgText(line)}</text>`);
+        });
+      }
+
+      push('</svg>');
+      return lines.join('');
+    };
+
+    const renderNotePageSvg = (pageNo: number, totalPages: number): string => {
+      const lines: string[] = [];
+      const push = (line: string) => lines.push(line);
+      const noteStartY = 320;
+      const lineStep = 72;
+
+      push(`<svg width="${pagePxW}" height="${pagePxH}" viewBox="0 0 ${pagePxW} ${pagePxH}" xmlns="http://www.w3.org/2000/svg">`);
+      push('<rect width="100%" height="100%" fill="white"/>');
+      push('<style>.th{font:700 32px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.td{font:400 28px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}</style>');
+      push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
+      push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
+      push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
+
+      noteWrappedLines.forEach((line, idx) => {
+        const y = noteStartY + idx * lineStep;
+        if (line.trim() === '') return;
+        const cls = idx === 0 ? 'th' : 'td';
+        push(`<text x="${marginX}" y="${y}" class="${cls}">${escapeSvgText(line)}</text>`);
+      });
+
+      push('</svg>');
+      return lines.join('');
+    };
+
+    const compactRowH = 48;
+    const compactNoteStep = 38;
+    const singlePageRequiredHeight = tableY + compactRowH * (bodyRows.length + 1) + 34 + noteWrappedLines.length * compactNoteStep + 40;
+    const canFitSinglePage = singlePageRequiredHeight <= pagePxH;
 
     try {
-      const pricingImage = await svgToPng(lines.join(''), TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      pdf.addImage(pricingImage, 'PNG', 0, 0, 420, 297);
+
+      if (canFitSinglePage) {
+        const onePage = await svgToPng(
+          renderTablePageSvg(bodyRows, 1, 1, { compact: true, includeNotes: true }),
+          TEMPLATE_DOWNLOAD_WIDTH,
+          TEMPLATE_DOWNLOAD_HEIGHT
+        );
+        pdf.addImage(onePage, 'PNG', 0, 0, 420, 297);
+      } else {
+        const rowChunks: Array<Array<Array<string | number>>> = [];
+        for (let i = 0; i < bodyRows.length; i += rowsPerPage) {
+          rowChunks.push(bodyRows.slice(i, i + rowsPerPage));
+        }
+        const totalPages = rowChunks.length + 1;
+
+        const tableImages = await Promise.all(
+          rowChunks.map((chunk, idx) => svgToPng(renderTablePageSvg(chunk, idx + 1, totalPages), TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT))
+        );
+        const noteImage = await svgToPng(renderNotePageSvg(totalPages, totalPages), TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
+
+        if (tableImages.length > 0) {
+          pdf.addImage(tableImages[0], 'PNG', 0, 0, 420, 297);
+          for (let i = 1; i < tableImages.length; i++) {
+            pdf.addPage('a3', 'landscape');
+            pdf.addImage(tableImages[i], 'PNG', 0, 0, 420, 297);
+          }
+          pdf.addPage('a3', 'landscape');
+        }
+        pdf.addImage(noteImage, 'PNG', 0, 0, 420, 297);
+      }
+
       pdf.save(`${docDetails.projectName || 'pricing'}_Pricing_Report.pdf`);
     } catch (error) {
       console.error('Failed to export pricing PDF:', error);
