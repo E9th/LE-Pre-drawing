@@ -63,6 +63,35 @@ const parseHeightMeters = (value: string): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const getSpacingByDepth = (depth: string): { x: number; y: number } | null => {
+  if (depth.includes('10')) return { x: 100, y: 100 };
+  if (depth.includes('15')) return { x: 150, y: 150 };
+  if (depth.includes('20')) return { x: 200, y: 200 };
+  return null;
+};
+
+const getModuleColorsByLightTemp = (lightTemp: string): { fill: string; stroke: string; dot: string } => {
+  const normalized = String(lightTemp || '').toLowerCase();
+
+  if (normalized.includes('3000')) {
+    return { fill: 'rgba(255, 195, 112, 0.26)', stroke: '#d97706', dot: '#b45309' };
+  }
+  if (normalized.includes('4000')) {
+    return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
+  }
+  if (normalized.includes('6500')) {
+    return { fill: 'rgba(181, 225, 255, 0.28)', stroke: '#2563eb', dot: '#1d4ed8' };
+  }
+  if (normalized.includes('tunable')) {
+    return { fill: 'rgba(232, 242, 255, 0.30)', stroke: '#0ea5e9', dot: '#0369a1' };
+  }
+  if (normalized.includes('rgbw')) {
+    return { fill: 'rgba(196, 126, 255, 0.28)', stroke: '#9333ea', dot: '#6b21a8' };
+  }
+
+  return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
+};
+
 const Input = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
@@ -218,7 +247,7 @@ export default function App() {
   const [spaceY, setSpaceY] = useState(150);
   const [objectName, setObjectName] = useState('SC-01');
   const [moduleName, setModuleName] = useState('SLM04');
-  const [layoutType, setLayoutType] = useState<LayoutType>('grid');
+  const [layoutType, setLayoutType] = useState<LayoutType>('staggered');
   const [showCenterLines, setShowCenterLines] = useState(true);
   const [zoom, setZoom] = useState(1);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -253,8 +282,8 @@ export default function App() {
   }
 
   const [docDetails, setDocDetails] = useState<DocumentDetails>({
-    projectName: 'XXXXXXXXXX',
-    location: 'XXXXXXXXXX',
+    projectName: 'ตัวอย่าง : One Bangkok',
+    location: 'ตัวอย่าง : กรุงเทพมหานคร',
     projectNumber: 'XXXX-XXX',
     date: 'XX/XX/2026',
     client: '',
@@ -289,7 +318,7 @@ export default function App() {
   const [lampF, setLampF] = useState('ผ้าใบขาว');
   const [lampLight, setLampLight] = useState('3000K');
   const [structure, setStructure] = useState('ทำ');
-  const [aoName, setAoName] = useState('L&E Team');
+  const [aoName, setAoName] = useState('ตัวอย่าง : ปอ แผนก LED');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
   const [isDataConfirmed, setIsDataConfirmed] = useState(false);
   const [appView, setAppView] = useState<AppView>('form');
@@ -1208,6 +1237,13 @@ Use Chain-of-Thought reasoning to:
   }, [appView, plannerLampId]);
 
   React.useEffect(() => {
+    const spacing = getSpacingByDepth(lampD);
+    if (!spacing) return;
+    if (spaceX !== spacing.x) setSpaceX(spacing.x);
+    if (spaceY !== spacing.y) setSpaceY(spacing.y);
+  }, [lampD, spaceX, spaceY]);
+
+  React.useEffect(() => {
     if (appView !== 'planner' || !plannerLampId) return;
     const dims = getPlannerDimensions(shape);
     setFormLamps(prev => prev.map(lamp => {
@@ -1332,12 +1368,13 @@ Use Chain-of-Thought reasoning to:
   };
 
   const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePage(lamp, index)), [formLamps]);
+  const moduleColors = useMemo(() => getModuleColorsByLightTemp(lampLight), [lampLight]);
   const plannerDraftPage = useMemo<PageData | null>(() => {
     if (appView !== 'planner' || !plannerLampId) return null;
     const moduleRects = result.modules.map((mod) => `
       <g transform="translate(${mod.x}, ${mod.y})">
-        <rect width="${mod.w}" height="${mod.h}" fill="rgba(59, 130, 246, 0.15)" stroke="#2563eb" stroke-width="${dynamicStrokeWidth}" />
-        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="${dynamicStrokeWidth * 1.5}" fill="#2563eb" />
+        <rect width="${mod.w}" height="${mod.h}" fill="${moduleColors.fill}" stroke="${moduleColors.stroke}" stroke-width="${dynamicStrokeWidth}" />
+        <circle cx="${mod.w / 2}" cy="${mod.h / 2}" r="${dynamicStrokeWidth * 1.5}" fill="${moduleColors.dot}" />
       </g>
     `).join('');
 
@@ -1452,6 +1489,7 @@ Use Chain-of-Thought reasoning to:
     lampD,
     lampF,
     lampLight,
+    moduleColors,
     calculateExactAreaSqm,
   ]);
 
@@ -2134,7 +2172,7 @@ Use Chain-of-Thought reasoning to:
             <div className="flex items-center gap-3">
               <img src="/logo_LE.svg" alt="L&E" className="h-10 w-auto" />
               <div>
-                <h1 className="text-2xl font-bold text-blue-700">L&E Check List</h1>
+                <h1 className="text-2xl font-bold text-blue-700">Stretch Ceiling Check List</h1>
                 <p className="text-sm text-neutral-500">ประเมินราคาและข้อมูลหน้างาน</p>
               </div>
             </div>
@@ -2178,7 +2216,7 @@ Use Chain-of-Thought reasoning to:
                 <p className="text-lg font-bold text-emerald-900">{pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</p>
               </div>
             </div>
-            <p className="text-xs text-emerald-800">ค่านั่งร้านทีมช่าง: {pricingSummary.scaffoldCost > 0 ? `${pricingSummary.scaffoldCost.toLocaleString('th-TH')} บาท (ความสูงหน้างาน >= 3 ม.)` : '0 บาท'}</p>
+            <p className="text-xs text-emerald-800">ราคาทุนค่านั่งร้านทีมช่าง : {pricingSummary.scaffoldCost > 0 ? `${pricingSummary.scaffoldCost.toLocaleString('th-TH')} บาท (ความสูงหน้างานมากกว่า 3 เมตร)` : '0 บาท'}</p>
 
             <div className="inline-flex rounded-lg border border-cyan-200 bg-white p-1">
               <button
@@ -2280,7 +2318,7 @@ Use Chain-of-Thought reasoning to:
                     <p className="mb-3 text-xs text-neutral-600">หน่วยของรายการนี้: สูง = ม., กว้าง/ยาว = มม.</p>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <TextInput label="Type (ชื่อของโครง)" required invalid={missingFields.includes('Type')} value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
+                      <TextInput label="Type" required invalid={missingFields.includes('Type')} value={lamp.shapeName} onChange={(v) => updateFormLamp(lamp.id, { shapeName: v })} />
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Object Shape<span className="text-red-600"> *</span></label>
                         <select
@@ -2334,6 +2372,7 @@ Use Chain-of-Thought reasoning to:
                         <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ความลึกของโครง') ? 'border-red-400' : 'border-neutral-300'}`}>
                           <option value="10 เซนติเมตร">10 เซนติเมตร</option>
                           <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
+                          <option value="20 เซนติเมตร">20 เซนติเมตร</option>
                           <option value="อื่นๆ">อื่นๆ</option>
                         </select>
                       </div>
@@ -2847,6 +2886,7 @@ Use Chain-of-Thought reasoning to:
                 <select value={lampD} onChange={(e) => setLampD(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
                   <option value="10 เซนติเมตร">10 เซนติเมตร</option>
                   <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
+                  <option value="20 เซนติเมตร">20 เซนติเมตร</option>
                   <option value="อื่นๆ">อื่นๆ</option>
                 </select>
               </div>
@@ -3111,8 +3151,8 @@ Use Chain-of-Thought reasoning to:
 
               {result.modules.map((mod, i) => (
                 <g key={i} transform={`translate(${mod.x}, ${mod.y})`}>
-                  <rect width={mod.w} height={mod.h} fill="rgba(59, 130, 246, 0.15)" stroke="#2563eb" strokeWidth={dynamicStrokeWidth} />
-                  <circle cx={mod.w/2} cy={mod.h/2} r={dynamicStrokeWidth * 1.5} fill="#2563eb" />
+                  <rect width={mod.w} height={mod.h} fill={moduleColors.fill} stroke={moduleColors.stroke} strokeWidth={dynamicStrokeWidth} />
+                  <circle cx={mod.w/2} cy={mod.h/2} r={dynamicStrokeWidth * 1.5} fill={moduleColors.dot} />
                 </g>
               ))}
 
