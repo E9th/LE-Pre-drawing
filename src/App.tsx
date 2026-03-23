@@ -137,15 +137,17 @@ const Input = ({ label, value, onChange, required = false, invalid = false }: { 
   </div>
 );
 
-const TextInput = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: string, onChange: (v: string) => void, required?: boolean, invalid?: boolean }) => (
+const TextInput = ({ label, value, onChange, required = false, invalid = false, placeholder = '', helpText }: { label: string, value: string, onChange: (v: string) => void, required?: boolean, invalid?: boolean, placeholder?: string, helpText?: string }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
       type="text" 
       value={value} 
       onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
       className={`w-full px-2 py-1.5 text-sm border rounded focus:ring-1 outline-none transition-all font-mono bg-white ${invalid ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-neutral-300 focus:border-blue-500 focus:ring-blue-500'}`}
     />
+    {helpText && <p className="mt-1 text-[11px] text-neutral-500">{helpText}</p>}
   </div>
 );
 
@@ -315,9 +317,9 @@ export default function App() {
   }
 
   const [docDetails, setDocDetails] = useState<DocumentDetails>({
-    projectName: 'ตัวอย่าง : One Bangkok',
-    location: 'ตัวอย่าง : กรุงเทพมหานคร',
-    projectNumber: 'XXXX-XXX',
+    projectName: '',
+    location: '',
+    projectNumber: '',
     date: 'XX/XX/2026',
     client: '',
     drawingTitle: 'Floor plan',
@@ -351,7 +353,7 @@ export default function App() {
   const [lampF, setLampF] = useState('ผ้าใบขาว');
   const [lampLight, setLampLight] = useState('3000K');
   const [structure, setStructure] = useState('ทำ');
-  const [aoName, setAoName] = useState('ตัวอย่าง : ปอ แผนก LED');
+  const [aoName, setAoName] = useState('');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
   const [isDataConfirmed, setIsDataConfirmed] = useState(false);
   const [appView, setAppView] = useState<AppView>('form');
@@ -617,6 +619,7 @@ export default function App() {
     }
 
     const forceDualModuleLayout = shouldForceDualModuleLayout(lampLight);
+    const effectiveLayoutType: LayoutType = forceDualModuleLayout ? 'grid' : layoutType;
     const placementModW = forceDualModuleLayout ? modW * 2 : modW;
 
     const ny = Math.floor((bbH - modH) / spaceY) + 1;
@@ -629,7 +632,7 @@ export default function App() {
       let nx_even = 0;
       let nx_odd = 0;
 
-      if (layoutType === 'grid') {
+      if (effectiveLayoutType === 'grid') {
         nx_even = Math.floor((bbW - placementModW) / spaceX) + 1;
         nx_odd = nx_even;
         if (nx_even > 0) {
@@ -650,8 +653,8 @@ export default function App() {
 
         for (let j = 0; j < ny; j++) {
           const isOddRow = j % 2 !== 0;
-          const nx = (layoutType === 'staggered' && isOddRow) ? nx_odd : nx_even;
-          const offsetX = (layoutType === 'staggered' && isOddRow) ? spaceX / 2 : 0;
+          const nx = (effectiveLayoutType === 'staggered' && isOddRow) ? nx_odd : nx_even;
+          const offsetX = (effectiveLayoutType === 'staggered' && isOddRow) ? spaceX / 2 : 0;
           
           for (let i = 0; i < nx; i++) {
             const cx = baseStartX + offsetX + i * spaceX;
@@ -1389,6 +1392,7 @@ Use Chain-of-Thought reasoning to:
     const modules: Array<{ x: number; y: number; w: number; h: number }> = [];
 
     const forceDualModuleLayout = shouldForceDualModuleLayout(lamp.t || lampLight);
+    const effectiveLayoutType: LayoutType = forceDualModuleLayout ? 'grid' : layoutType;
     const placementModW = forceDualModuleLayout ? modW * 2 : modW;
 
     if (modW > 0 && modH > 0 && currentSpaceX > 0 && currentSpaceY > 0) {
@@ -1404,7 +1408,7 @@ Use Chain-of-Thought reasoning to:
           let arrW = 0;
           let nxEven = 0;
           let nxOdd = 0;
-          if (layoutType === 'grid') {
+          if (effectiveLayoutType === 'grid') {
             nxEven = Math.floor((width - placementModW) / currentSpaceX) + 1;
             nxOdd = nxEven;
             if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + placementModW;
@@ -1420,8 +1424,8 @@ Use Chain-of-Thought reasoning to:
             const baseStartX = (width - arrW) / 2 + placementModW / 2;
             for (let j = 0; j < ny; j++) {
               const isOddRow = j % 2 !== 0;
-              const nx = (layoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
-              const offsetX = (layoutType === 'staggered' && isOddRow) ? currentSpaceX / 2 : 0;
+              const nx = (effectiveLayoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
+              const offsetX = (effectiveLayoutType === 'staggered' && isOddRow) ? currentSpaceX / 2 : 0;
 
               for (let i = 0; i < nx; i++) {
                 const cxm = baseStartX + offsetX + i * currentSpaceX;
@@ -2419,6 +2423,7 @@ Use Chain-of-Thought reasoning to:
     if (modW <= 0 || modH <= 0 || currentSpaceX <= 0 || currentSpaceY <= 0) return 1;
 
     const forceDualModuleLayout = shouldForceDualModuleLayout(lamp.t || '');
+    const effectiveLayoutType: LayoutType = forceDualModuleLayout ? 'grid' : layoutType;
     const placementModW = forceDualModuleLayout ? modW * 2 : modW;
 
     const shapePathByType: Record<ShapeType, string> = {
@@ -2453,7 +2458,7 @@ Use Chain-of-Thought reasoning to:
     let arrW = 0;
     let nxEven = 0;
     let nxOdd = 0;
-    if (layoutType === 'grid') {
+    if (effectiveLayoutType === 'grid') {
       nxEven = Math.floor((width - placementModW) / currentSpaceX) + 1;
       nxOdd = nxEven;
       if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + placementModW;
@@ -2471,8 +2476,8 @@ Use Chain-of-Thought reasoning to:
     let count = 0;
     for (let j = 0; j < ny; j++) {
       const isOddRow = j % 2 !== 0;
-      const nx = (layoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
-      const offsetX = (layoutType === 'staggered' && isOddRow) ? currentSpaceX / 2 : 0;
+      const nx = (effectiveLayoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
+      const offsetX = (effectiveLayoutType === 'staggered' && isOddRow) ? currentSpaceX / 2 : 0;
 
       for (let i = 0; i < nx; i++) {
         const cx = baseStartX + offsetX + i * currentSpaceX;
@@ -2764,10 +2769,10 @@ Use Chain-of-Thought reasoning to:
             <p className="text-xs font-medium text-red-600">* จำเป็นต้องกรอก</p>
             <p className="text-xs text-neutral-600">หน่วยที่ใช้ในฟอร์ม: ความสูงหน้างาน = เมตร (ม.), กว้าง/ยาว = มิลลิเมตร (มม.)</p>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <TextInput label="ชื่อ AO/แผนก" required value={aoName} onChange={setAoName} />
-              <TextInput label="ชื่อ Project" required value={docDetails.projectName} onChange={(v) => setDocDetails({ ...docDetails, projectName: v })} />
-              <TextInput label="สถานที่หน้างาน" required value={docDetails.location} onChange={(v) => setDocDetails({ ...docDetails, location: v })} />
-              <TextInput label="Project Number" value={docDetails.projectNumber} onChange={(v) => setDocDetails({ ...docDetails, projectNumber: v })} />
+              <TextInput label="ชื่อ AO/แผนก" required value={aoName} onChange={setAoName} placeholder="ตัวอย่าง: ปอ แผนก LED" helpText="กรอกชื่อผู้ประสานงานหรือชื่อทีมที่รับผิดชอบ" />
+              <TextInput label="ชื่อ Project" required value={docDetails.projectName} onChange={(v) => setDocDetails({ ...docDetails, projectName: v })} placeholder="ตัวอย่าง: One Bangkok" />
+              <TextInput label="สถานที่หน้างาน" required value={docDetails.location} onChange={(v) => setDocDetails({ ...docDetails, location: v })} placeholder="ตัวอย่าง: กรุงเทพมหานคร" />
+              <TextInput label="Project Number" value={docDetails.projectNumber} onChange={(v) => setDocDetails({ ...docDetails, projectNumber: v })} placeholder="ตัวอย่าง: XXXX-XXX" />
               <TextInput label="ผู้ติดต่อ / Client" value={docDetails.client} onChange={(v) => setDocDetails({ ...docDetails, client: v })} />
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องงานโครงสร้างใหม่?<span className="text-red-600"> *</span></label>
