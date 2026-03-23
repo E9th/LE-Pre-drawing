@@ -1774,11 +1774,12 @@ Use Chain-of-Thought reasoning to:
     const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
     const moduleCost = totalModules * 21;
-    const fabricCost = totalAreaSqm * 1670;
-    const structureCost = totalAreaSqm <= 7 ? 22000 : totalAreaSqm * 5000;
+    const fabricCost = totalAreaSqm * 2170;
+    const structureCost = totalAreaSqm * 5000;
+    const installationCost = totalAreaSqm * 1670;
     const requiresScaffold = effectiveTemplatePages.some((p) => parseHeightMeters(p.h) >= 3);
     const scaffoldCost = requiresScaffold ? 8000 : 0;
-    const subtotalBeforeGP = fabricCost + structureCost + moduleCost + scaffoldCost;
+    const subtotalBeforeGP = fabricCost + structureCost + installationCost + moduleCost + scaffoldCost;
     const estimatedPrice = subtotalBeforeGP / 0.7;
 
     return {
@@ -1787,6 +1788,7 @@ Use Chain-of-Thought reasoning to:
       moduleCost,
       fabricCost,
       structureCost,
+      installationCost,
       scaffoldCost,
       subtotalBeforeGP,
       estimatedPrice,
@@ -1803,9 +1805,10 @@ Use Chain-of-Thought reasoning to:
 
       const fabricCostPerType = pricingSummary.fabricCost * areaRatio;
       const structureCostPerType = pricingSummary.structureCost * areaRatio;
+      const installationCostPerType = pricingSummary.installationCost * areaRatio;
       const scaffoldCostPerType = pricingSummary.scaffoldCost * areaRatio;
       const moduleCostPerType = totalModulesPerType * 21;
-      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + scaffoldCostPerType + moduleCostPerType;
+      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + scaffoldCostPerType + moduleCostPerType;
       const estimatedPricePerType = subtotalBeforeGPPerType / 0.7;
 
       return {
@@ -1817,6 +1820,7 @@ Use Chain-of-Thought reasoning to:
         totalModulesPerType,
         fabricCostPerType,
         structureCostPerType,
+        installationCostPerType,
         scaffoldCostPerType,
         moduleCostPerType,
         subtotalBeforeGPPerType,
@@ -1847,7 +1851,8 @@ Use Chain-of-Thought reasoning to:
         totalAreaPerType: item.totalAreaPerType,
         vinylCost: item.fabricCostPerType,
         structureCost: item.structureCostPerType,
-        installationCost: item.scaffoldCostPerType,
+        installationCost: item.installationCostPerType,
+        scaffoldCost: item.scaffoldCostPerType,
         modulesPerLamp,
         totalModules: item.totalModulesPerType,
         modulePricePerType: item.moduleCostPerType,
@@ -1876,6 +1881,7 @@ Use Chain-of-Thought reasoning to:
         vinylCost: acc.vinylCost + row.vinylCost,
         structureCost: acc.structureCost + row.structureCost,
         installationCost: acc.installationCost + row.installationCost,
+        scaffoldCost: acc.scaffoldCost + row.scaffoldCost,
         totalModules: acc.totalModules + row.totalModules,
         modulePricePerType: acc.modulePricePerType + row.modulePricePerType,
         ledWattPerType: acc.ledWattPerType + row.ledWattPerType,
@@ -1889,6 +1895,7 @@ Use Chain-of-Thought reasoning to:
         vinylCost: 0,
         structureCost: 0,
         installationCost: 0,
+        scaffoldCost: 0,
         totalModules: 0,
         modulePricePerType: 0,
         ledWattPerType: 0,
@@ -1916,6 +1923,7 @@ Use Chain-of-Thought reasoning to:
         'Vinyl translucent cost',
         'Structure Cost (THB)',
         'Installation Cost (THB)',
+        'Scaffold Cost (THB)',
         'จำนวน module/โคม',
         'จำนวน module รวม',
         'ราคา module/type',
@@ -1938,6 +1946,7 @@ Use Chain-of-Thought reasoning to:
         item.vinylCost.toFixed(2),
         item.structureCost.toFixed(2),
         item.installationCost.toFixed(2),
+        item.scaffoldCost.toFixed(2),
         item.modulesPerLamp,
         item.totalModules,
         item.modulePricePerType.toFixed(2),
@@ -1960,6 +1969,7 @@ Use Chain-of-Thought reasoning to:
       totals.vinylCost.toFixed(2),
       totals.structureCost.toFixed(2),
       totals.installationCost.toFixed(2),
+      totals.scaffoldCost.toFixed(2),
       '-',
       totals.totalModules,
       totals.modulePricePerType.toFixed(2),
@@ -2000,6 +2010,7 @@ Use Chain-of-Thought reasoning to:
         vinylCost: acc.vinylCost + row.vinylCost,
         structureCost: acc.structureCost + row.structureCost,
         installationCost: acc.installationCost + row.installationCost,
+        scaffoldCost: acc.scaffoldCost + row.scaffoldCost,
         totalModules: acc.totalModules + row.totalModules,
         modulePricePerType: acc.modulePricePerType + row.modulePricePerType,
         ledWattPerType: acc.ledWattPerType + row.ledWattPerType,
@@ -2013,6 +2024,7 @@ Use Chain-of-Thought reasoning to:
         vinylCost: 0,
         structureCost: 0,
         installationCost: 0,
+        scaffoldCost: 0,
         totalModules: 0,
         modulePricePerType: 0,
         ledWattPerType: 0,
@@ -2023,7 +2035,7 @@ Use Chain-of-Thought reasoning to:
     );
 
     const headers = [
-      'Type', 'ขนาด (ม. x ม.)', 'พื้นที่/โคม', 'Qty', 'พื้นที่รวม', 'Vinyl', 'Structure', 'Install',
+      'Type', 'ขนาด (ม. x ม.)', 'พื้นที่/โคม', 'Qty', 'พื้นที่รวม', 'Vinyl', 'Structure', 'Install', 'Scaffold',
       'Mod/โคม', 'Mod รวม', 'ราคา module', 'W/โคม', 'W/Type', 'SW/โคม', 'SW/Type', 'ราคา SW', 'Summary',
     ];
 
@@ -2036,6 +2048,7 @@ Use Chain-of-Thought reasoning to:
       row.vinylCost.toFixed(0),
       row.structureCost.toFixed(0),
       row.installationCost.toFixed(0),
+      row.scaffoldCost.toFixed(0),
       row.modulesPerLamp,
       row.totalModules,
       row.modulePricePerType.toFixed(0),
@@ -2049,7 +2062,7 @@ Use Chain-of-Thought reasoning to:
 
     bodyRows.push([
       'Totally', '-', '-', totals.qty, totals.totalAreaPerType.toFixed(2), totals.vinylCost.toFixed(0),
-      totals.structureCost.toFixed(0), totals.installationCost.toFixed(0), '-', totals.totalModules,
+      totals.structureCost.toFixed(0), totals.installationCost.toFixed(0), totals.scaffoldCost.toFixed(0), '-', totals.totalModules,
       totals.modulePricePerType.toFixed(0), '-', totals.ledWattPerType.toFixed(1), '-', totals.switchingPerType,
       totals.switchingPricePerType.toFixed(0), totals.summaryPricePerType.toFixed(0),
     ]);
@@ -2062,7 +2075,7 @@ Use Chain-of-Thought reasoning to:
     const metaY = titleY + 34;
     const tableY = metaY + 34;
     const rowH = 62;
-    const colWidths = [360, 360, 240, 180, 240, 240, 240, 220, 200, 200, 240, 180, 180, 180, 180, 220, 270];
+    const colWidths = [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 250];
     const rowsPerPage = Math.max(1, Math.floor((pagePxH - tableY - 80) / rowH) - 1);
 
     const noteLines = [
@@ -2324,6 +2337,7 @@ Use Chain-of-Thought reasoning to:
           moduleCost: pricingSummary.moduleCost,
           fabricCost: pricingSummary.fabricCost,
           structureCost: pricingSummary.structureCost,
+          installationCost: pricingSummary.installationCost,
           scaffoldCost: pricingSummary.scaffoldCost,
           subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
           estimatedPrice: pricingSummary.estimatedPrice,
@@ -2339,7 +2353,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbzoGeeAs2_EyPj6KB93d6ZBpZQ8jDB5B878ayAZBCXfp3a3bQwoHrsniFfefC4WI22fBA/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbwW0FzY3j2zMUxeVOFvawn4aGkv51ofqvFP5KRoO3ho19ADzt_pUE2Q_CDBE8JKI21L6A/exec";
 
       try {
         // ยิงแบบปกติก่อน (อ่านผลตอบกลับได้)
@@ -2658,6 +2672,7 @@ Use Chain-of-Thought reasoning to:
           moduleCost: pricingSummary.moduleCost,
           fabricCost: pricingSummary.fabricCost,
           structureCost: pricingSummary.structureCost,
+          installationCost: pricingSummary.installationCost,
           scaffoldCost: pricingSummary.scaffoldCost,
           subtotalBeforeGP: pricingSummary.subtotalBeforeGP,
           estimatedPrice: pricingSummary.estimatedPrice,
@@ -2665,7 +2680,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbzoGeeAs2_EyPj6KB93d6ZBpZQ8jDB5B878ayAZBCXfp3a3bQwoHrsniFfefC4WI22fBA/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbwW0FzY3j2zMUxeVOFvawn4aGkv51ofqvFP5KRoO3ho19ADzt_pUE2Q_CDBE8JKI21L6A/exec';
 
       try {
         const response = await fetch(apiUrl, {
@@ -3816,6 +3831,9 @@ Use Chain-of-Thought reasoning to:
 
                     <div className="text-neutral-600">Structure Cost (THB)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-neutral-600">Installation Cost (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
 
                     <div className="text-neutral-600">Scaffolding Cost (THB)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>

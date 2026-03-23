@@ -81,6 +81,7 @@ function doPost(e) {
       "Module รวม (ชิ้น)",
       "ค่าผ้าใบ (บาท)",
       "ค่าโครงสร้าง (บาท)",
+      "ค่า Installation (บาท)",
       "ค่านั่งร้าน (บาท)",
       "ค่าจำนวน Module (บาท)",
       "ต้นทุนก่อน GP (บาท)",
@@ -109,6 +110,7 @@ function doPost(e) {
       "พื้นที่รวม Type นี้ (ตร.ม.)",
       "ค่าผ้าใบ Type นี้ (บาท)",
       "ค่าโครงสร้าง Type นี้ (บาท)",
+      "ค่า Installation Type นี้ (บาท)",
       "ค่านั่งร้าน Type นี้ (บาท)",
       "ค่า Module Type นี้ (บาท)",
       "ต้นทุนก่อน GP Type นี้ (บาท)",
@@ -245,8 +247,9 @@ function doPost(e) {
     var moduleCost = hasPricingSummary ? Number(pricing.moduleCost || 0) : finalModules * 21;
     var fabricCost = hasPricingSummary ? Number(pricing.fabricCost || 0) : 0;
     var structureCost = hasPricingSummary ? Number(pricing.structureCost || 0) : 0;
+    var installationCost = hasPricingSummary ? Number(pricing.installationCost || 0) : 0;
     var scaffoldCost = hasPricingSummary ? Number(pricing.scaffoldCost || 0) : 0;
-    var subtotalBeforeGP = hasPricingSummary ? Number(pricing.subtotalBeforeGP) : moduleCost + fabricCost + structureCost + scaffoldCost;
+    var subtotalBeforeGP = hasPricingSummary ? Number(pricing.subtotalBeforeGP) : moduleCost + fabricCost + structureCost + installationCost + scaffoldCost;
     var estimatedPrice = hasPricingSummary ? Number(pricing.estimatedPrice) : subtotalBeforeGP;
 
     // กระจายราคาไปแต่ละ Type ตามสัดส่วนพื้นที่ (ส่วน module ใช้จำนวนจริงต่อ Type)
@@ -256,9 +259,10 @@ function doPost(e) {
       var areaRatio = item.totalAreaPerType / areaDenominator;
       var fabricPerType = fabricCost * areaRatio;
       var structurePerType = structureCost * areaRatio;
+      var installationPerType = installationCost * areaRatio;
       var scaffoldPerType = scaffoldCost * areaRatio;
       var modulePerType = item.totalModulesPerType * 21;
-      var subtotalPerType = fabricPerType + structurePerType + scaffoldPerType + modulePerType;
+      var subtotalPerType = fabricPerType + structurePerType + installationPerType + scaffoldPerType + modulePerType;
       var estimatePerType = subtotalPerType / 0.7;
 
       lampsSheet.appendRow([
@@ -280,6 +284,7 @@ function doPost(e) {
         item.totalAreaPerType,
         Math.round(fabricPerType * 100) / 100,
         Math.round(structurePerType * 100) / 100,
+        Math.round(installationPerType * 100) / 100,
         Math.round(scaffoldPerType * 100) / 100,
         Math.round(modulePerType * 100) / 100,
         Math.round(subtotalPerType * 100) / 100,
@@ -309,6 +314,7 @@ function doPost(e) {
       finalModules,
       fabricCost,
       structureCost,
+      installationCost,
       scaffoldCost,
       moduleCost,
       subtotalBeforeGP,
