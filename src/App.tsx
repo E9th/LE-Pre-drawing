@@ -103,7 +103,12 @@ const shouldForceDualModuleLayout = (lightTemp: string): boolean => {
 
 const LED_MODULE_WATT = 1.44;
 const SWITCHING_POWER_WATT = 150;
-const SWITCHING_PRICE_PER_UNIT = 0;
+const SWITCHING_PRICE_PER_UNIT = 500;
+
+const roundUpToOneDecimal = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.ceil(value * 10) / 10;
+};
 
 const escapeSvgText = (value: string): string => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -1769,7 +1774,7 @@ Use Chain-of-Thought reasoning to:
     const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
     const moduleCost = totalModules * 21;
-    const fabricCost = totalAreaSqm <= 7 ? 12000 : totalAreaSqm * 1670;
+    const fabricCost = totalAreaSqm * 1670;
     const structureCost = totalAreaSqm <= 7 ? 22000 : totalAreaSqm * 5000;
     const requiresScaffold = effectiveTemplatePages.some((p) => parseHeightMeters(p.h) >= 3);
     const scaffoldCost = requiresScaffold ? 8000 : 0;
@@ -1828,8 +1833,8 @@ Use Chain-of-Thought reasoning to:
       const heightM = (page?.bbH || 0) / 1000;
       const areaPerLamp = page?.exactAreaSqm || 0;
       const modulesPerLamp = Math.max(1, page?.moduleCount || 1);
-      const ledWattPerLamp = modulesPerLamp * LED_MODULE_WATT;
-      const ledWattPerType = item.totalModulesPerType * LED_MODULE_WATT;
+      const ledWattPerLamp = roundUpToOneDecimal(modulesPerLamp * LED_MODULE_WATT);
+      const ledWattPerType = roundUpToOneDecimal(item.totalModulesPerType * LED_MODULE_WATT);
       const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       const switchingPerType = Math.max(1, Math.ceil(ledWattPerType / SWITCHING_POWER_WATT));
       const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
@@ -1970,7 +1975,7 @@ Use Chain-of-Thought reasoning to:
     rows.push(['- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์']);
     rows.push(['- รับประกันสินค้า 2 ปี']);
     rows.push(['- ราคาอาจปรับตามหน้างานจริง']);
-    rows.push([`- ค่า Switching คิดที่ ${SWITCHING_PRICE_PER_UNIT.toFixed(2)} บาท/ชุด (สามารถปรับได้)`]);
+    rows.push([`- ค่า Switching คิดที่ ${SWITCHING_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว (สามารถปรับได้)`]);
 
     return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
   }, [
