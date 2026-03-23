@@ -80,6 +80,9 @@ const getModuleColorsByLightTemp = (lightTemp: string): { fill: string; stroke: 
   if (normalized.includes('4000')) {
     return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
   }
+  if (normalized.includes('5000')) {
+    return { fill: 'rgba(224, 242, 254, 0.30)', stroke: '#0284c7', dot: '#0369a1' };
+  }
   if (normalized.includes('6500')) {
     return { fill: 'rgba(181, 225, 255, 0.28)', stroke: '#2563eb', dot: '#1d4ed8' };
   }
@@ -91,6 +94,11 @@ const getModuleColorsByLightTemp = (lightTemp: string): { fill: string; stroke: 
   }
 
   return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
+};
+
+const shouldForceDualModuleLayout = (lightTemp: string): boolean => {
+  const normalized = String(lightTemp || '').toLowerCase();
+  return normalized.includes('tunable') || normalized.includes('5000');
 };
 
 const LED_MODULE_WATT = 1.44;
@@ -608,6 +616,9 @@ export default function App() {
       }
     }
 
+    const forceDualModuleLayout = shouldForceDualModuleLayout(lampLight);
+    const placementModW = forceDualModuleLayout ? modW * 2 : modW;
+
     const ny = Math.floor((bbH - modH) / spaceY) + 1;
 
     if (ny > 0) {
@@ -619,23 +630,23 @@ export default function App() {
       let nx_odd = 0;
 
       if (layoutType === 'grid') {
-        nx_even = Math.floor((bbW - modW) / spaceX) + 1;
+        nx_even = Math.floor((bbW - placementModW) / spaceX) + 1;
         nx_odd = nx_even;
         if (nx_even > 0) {
-          arrW = (nx_even - 1) * spaceX + modW;
+          arrW = (nx_even - 1) * spaceX + placementModW;
         }
       } else {
-        nx_even = Math.floor((bbW - modW) / spaceX) + 1;
-        nx_odd = Math.floor((bbW - modW - spaceX / 2) / spaceX) + 1;
+        nx_even = Math.floor((bbW - placementModW) / spaceX) + 1;
+        nx_odd = Math.floor((bbW - placementModW - spaceX / 2) / spaceX) + 1;
         if (nx_even > 0 || nx_odd > 0) {
-          const w_even = nx_even > 0 ? (nx_even - 1) * spaceX + modW : 0;
-          const w_odd = nx_odd > 0 ? spaceX / 2 + (nx_odd - 1) * spaceX + modW : 0;
+          const w_even = nx_even > 0 ? (nx_even - 1) * spaceX + placementModW : 0;
+          const w_odd = nx_odd > 0 ? spaceX / 2 + (nx_odd - 1) * spaceX + placementModW : 0;
           arrW = Math.max(w_even, w_odd);
         }
       }
 
       if (arrW > 0) {
-        const baseStartX = (bbW - arrW) / 2 + modW / 2;
+        const baseStartX = (bbW - arrW) / 2 + placementModW / 2;
 
         for (let j = 0; j < ny; j++) {
           const isOddRow = j % 2 !== 0;
@@ -647,8 +658,8 @@ export default function App() {
             const cy = startY + j * spaceY;
             let isInside = false;
             const corners = [
-              {x: cx - modW/2, y: cy - modH/2}, {x: cx + modW/2, y: cy - modH/2},
-              {x: cx + modW/2, y: cy + modH/2}, {x: cx - modW/2, y: cy + modH/2}
+              {x: cx - placementModW/2, y: cy - modH/2}, {x: cx + placementModW/2, y: cy - modH/2},
+              {x: cx + placementModW/2, y: cy + modH/2}, {x: cx - placementModW/2, y: cy + modH/2}
             ];
 
             if (shape === 'rectangle') {
@@ -745,13 +756,21 @@ export default function App() {
                 });
               }
             }
-            if (isInside) modules.push({ x: cx - modW/2, y: cy - modH/2, w: modW, h: modH });
+            if (isInside) {
+              if (forceDualModuleLayout) {
+                const leftX = cx - placementModW / 2;
+                modules.push({ x: leftX, y: cy - modH / 2, w: modW, h: modH });
+                modules.push({ x: leftX + modW, y: cy - modH / 2, w: modW, h: modH });
+              } else {
+                modules.push({ x: cx - modW / 2, y: cy - modH / 2, w: modW, h: modH });
+              }
+            }
           }
         }
       }
     }
     return { modules, shapePath, bbW, bbH, error };
-  }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath, polygonPoints, polygonBounds, textPath, textBounds]);
+  }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath, polygonPoints, polygonBounds, textPath, textBounds, lampLight]);
 
   let minDx = Infinity;
   let modX: {x: number, y: number, w: number, h: number} | null = null;
@@ -1369,6 +1388,9 @@ Use Chain-of-Thought reasoning to:
     const currentSpaceY = depthSpacing?.y ?? spaceY;
     const modules: Array<{ x: number; y: number; w: number; h: number }> = [];
 
+    const forceDualModuleLayout = shouldForceDualModuleLayout(lamp.t || lampLight);
+    const placementModW = forceDualModuleLayout ? modW * 2 : modW;
+
     if (modW > 0 && modH > 0 && currentSpaceX > 0 && currentSpaceY > 0) {
       const path = new Path2D(shapePath);
       const testCanvas = document.createElement('canvas');
@@ -1383,19 +1405,19 @@ Use Chain-of-Thought reasoning to:
           let nxEven = 0;
           let nxOdd = 0;
           if (layoutType === 'grid') {
-            nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
+            nxEven = Math.floor((width - placementModW) / currentSpaceX) + 1;
             nxOdd = nxEven;
-            if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + modW;
+            if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + placementModW;
           } else {
-            nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
-            nxOdd = Math.floor((width - modW - currentSpaceX / 2) / currentSpaceX) + 1;
-            const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + modW : 0;
-            const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + modW : 0;
+            nxEven = Math.floor((width - placementModW) / currentSpaceX) + 1;
+            nxOdd = Math.floor((width - placementModW - currentSpaceX / 2) / currentSpaceX) + 1;
+            const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + placementModW : 0;
+            const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + placementModW : 0;
             arrW = Math.max(wEven, wOdd);
           }
 
           if (arrW > 0) {
-            const baseStartX = (width - arrW) / 2 + modW / 2;
+            const baseStartX = (width - arrW) / 2 + placementModW / 2;
             for (let j = 0; j < ny; j++) {
               const isOddRow = j % 2 !== 0;
               const nx = (layoutType === 'staggered' && isOddRow) ? nxOdd : nxEven;
@@ -1405,13 +1427,21 @@ Use Chain-of-Thought reasoning to:
                 const cxm = baseStartX + offsetX + i * currentSpaceX;
                 const cym = startY + j * currentSpaceY;
                 const corners = [
-                  { x: cxm - modW / 2, y: cym - modH / 2 },
-                  { x: cxm + modW / 2, y: cym - modH / 2 },
-                  { x: cxm + modW / 2, y: cym + modH / 2 },
-                  { x: cxm - modW / 2, y: cym + modH / 2 },
+                  { x: cxm - placementModW / 2, y: cym - modH / 2 },
+                  { x: cxm + placementModW / 2, y: cym - modH / 2 },
+                  { x: cxm + placementModW / 2, y: cym + modH / 2 },
+                  { x: cxm - placementModW / 2, y: cym + modH / 2 },
                 ];
                 const inside = corners.every((pt) => testCtx.isPointInPath(path, pt.x, pt.y, 'evenodd'));
-                if (inside) modules.push({ x: cxm - modW / 2, y: cym - modH / 2, w: modW, h: modH });
+                if (inside) {
+                  if (forceDualModuleLayout) {
+                    const leftX = cxm - placementModW / 2;
+                    modules.push({ x: leftX, y: cym - modH / 2, w: modW, h: modH });
+                    modules.push({ x: leftX + modW, y: cym - modH / 2, w: modW, h: modH });
+                  } else {
+                    modules.push({ x: cxm - modW / 2, y: cym - modH / 2, w: modW, h: modH });
+                  }
+                }
               }
             }
           }
@@ -2388,6 +2418,9 @@ Use Chain-of-Thought reasoning to:
 
     if (modW <= 0 || modH <= 0 || currentSpaceX <= 0 || currentSpaceY <= 0) return 1;
 
+    const forceDualModuleLayout = shouldForceDualModuleLayout(lamp.t || '');
+    const placementModW = forceDualModuleLayout ? modW * 2 : modW;
+
     const shapePathByType: Record<ShapeType, string> = {
       rectangle: `M 0 0 L ${width} 0 L ${width} ${height} L 0 ${height} Z`,
       circle: `M ${width / 2} ${height / 2} m -${Math.min(width, height) / 2}, 0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 ${Math.min(width, height)},0 a ${Math.min(width, height) / 2},${Math.min(width, height) / 2} 0 1,0 -${Math.min(width, height)},0`,
@@ -2421,19 +2454,19 @@ Use Chain-of-Thought reasoning to:
     let nxEven = 0;
     let nxOdd = 0;
     if (layoutType === 'grid') {
-      nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
+      nxEven = Math.floor((width - placementModW) / currentSpaceX) + 1;
       nxOdd = nxEven;
-      if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + modW;
+      if (nxEven > 0) arrW = (nxEven - 1) * currentSpaceX + placementModW;
     } else {
-      nxEven = Math.floor((width - modW) / currentSpaceX) + 1;
-      nxOdd = Math.floor((width - modW - currentSpaceX / 2) / currentSpaceX) + 1;
-      const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + modW : 0;
-      const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + modW : 0;
+      nxEven = Math.floor((width - placementModW) / currentSpaceX) + 1;
+      nxOdd = Math.floor((width - placementModW - currentSpaceX / 2) / currentSpaceX) + 1;
+      const wEven = nxEven > 0 ? (nxEven - 1) * currentSpaceX + placementModW : 0;
+      const wOdd = nxOdd > 0 ? currentSpaceX / 2 + (nxOdd - 1) * currentSpaceX + placementModW : 0;
       arrW = Math.max(wEven, wOdd);
     }
 
     if (arrW <= 0) return 1;
-    const baseStartX = (width - arrW) / 2 + modW / 2;
+    const baseStartX = (width - arrW) / 2 + placementModW / 2;
 
     let count = 0;
     for (let j = 0; j < ny; j++) {
@@ -2445,13 +2478,13 @@ Use Chain-of-Thought reasoning to:
         const cx = baseStartX + offsetX + i * currentSpaceX;
         const cy = startY + j * currentSpaceY;
         const corners = [
-          { x: cx - modW / 2, y: cy - modH / 2 },
-          { x: cx + modW / 2, y: cy - modH / 2 },
-          { x: cx + modW / 2, y: cy + modH / 2 },
-          { x: cx - modW / 2, y: cy + modH / 2 },
+          { x: cx - placementModW / 2, y: cy - modH / 2 },
+          { x: cx + placementModW / 2, y: cy - modH / 2 },
+          { x: cx + placementModW / 2, y: cy + modH / 2 },
+          { x: cx - placementModW / 2, y: cy + modH / 2 },
         ];
         const inside = corners.every((pt) => testCtx.isPointInPath(path, pt.x, pt.y, 'evenodd'));
-        if (inside) count += 1;
+        if (inside) count += forceDualModuleLayout ? 2 : 1;
       }
     }
 
@@ -2937,6 +2970,7 @@ Use Chain-of-Thought reasoning to:
                         <select value={lamp.t} onChange={(e) => updateFormLamp(lamp.id, { t: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('อุณหภูมิแสง') ? 'border-red-400' : 'border-neutral-300'}`}>
                           <option value="3000K">3000K</option>
                           <option value="4000K">4000K</option>
+                          <option value="5000K">5000K</option>
                           <option value="6500K">6500K</option>
                           <option value="Tunable White">Tunable White</option>
                           <option value="RGBW">RGBW</option>
@@ -3452,6 +3486,7 @@ Use Chain-of-Thought reasoning to:
                   <select value={lampLight} onChange={(e) => setLampLight(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
                     <option value="3000K">3000K</option>
                     <option value="4000K">4000K</option>
+                    <option value="5000K">5000K</option>
                     <option value="6500K">6500K</option>
                     <option value="Tunable White">Tunable White</option>
                     <option value="RGBW">RGBW</option>
