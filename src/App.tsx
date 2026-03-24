@@ -132,7 +132,12 @@ const getNextShapeName = (lamps: FormLampItem[]): string => {
 
 const normalizeShapeName = (name: string): string => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-const Input = ({ label, value, onChange, required = false, invalid = false, allowBlank = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean, allowBlank?: boolean }) => (
+const toValidQty = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return value > 0 ? value : 0;
+};
+
+const Input = ({ label, value, onChange, required = false, invalid = false, allowBlank = false, placeholder = '', helpText }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean, allowBlank?: boolean, placeholder?: string, helpText?: string }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
@@ -146,8 +151,10 @@ const Input = ({ label, value, onChange, required = false, invalid = false, allo
         }
         onChange(Number(raw));
       }}
+      placeholder={placeholder}
       className={`w-full px-2 py-1.5 text-sm border rounded focus:ring-1 outline-none transition-all font-mono bg-white ${invalid ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-neutral-300 focus:border-blue-500 focus:ring-blue-500'}`}
     />
+    {helpText && <p className="mt-1 text-[11px] text-neutral-500">{helpText}</p>}
   </div>
 );
 
@@ -384,8 +391,8 @@ export default function App() {
       l: Number.NaN,
       innerDia: 500,
       modulesPerLamp: 1,
-      q: 1,
-      h: '3',
+      q: Number.NaN,
+      h: '',
       d: '10 เซนติเมตร',
       f: 'ผ้าใบขาว',
       t: '3000K',
@@ -1596,6 +1603,7 @@ Use Chain-of-Thought reasoning to:
     `;
 
     const areaSqm = (width * height) / 1000000;
+    const qty = toValidQty(lamp.q);
     const svgContent = `${dimensionMarkup}<path d="${shapePath}" fill="white" stroke="#525252" stroke-width="${localStroke * 2}" />${centerLineMarkup}${centerOffsetXMarkup}${centerOffsetYMarkup}${moduleRects}${labelMarkup}`;
 
     return {
@@ -1606,7 +1614,7 @@ Use Chain-of-Thought reasoning to:
       bbH: height,
       moduleCount: Math.max(1, modules.length || lamp.modulesPerLamp || 1),
       name: `${lamp.shapeName || `Lamp ${index + 1}`} (${lamp.objectShape})`,
-      q: lamp.q,
+      q: qty,
       h: lamp.h,
       d: lamp.d,
       f: lamp.f,
@@ -2571,8 +2579,8 @@ Use Chain-of-Thought reasoning to:
         l: Number.NaN,
         innerDia: 500,
         modulesPerLamp: 1,
-        q: 1,
-        h: '3',
+        q: Number.NaN,
+        h: '',
         d: '10 เซนติเมตร',
         f: 'ผ้าใบขาว',
         t: '3000K',
@@ -2868,13 +2876,13 @@ Use Chain-of-Thought reasoning to:
             <div className="inline-flex rounded-lg border border-cyan-200 bg-white p-1">
               <button
                 onClick={() => setPricingView('summary')}
-                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'summary' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'summary' ? 'bg-cyan-600 !text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
               >
                 มุมมองสรุป
               </button>
               <button
                 onClick={() => setPricingView('type')}
-                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'type' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'type' ? 'bg-cyan-600 !text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
               >
                 มุมมองแยก Type
               </button>
@@ -2978,7 +2986,7 @@ Use Chain-of-Thought reasoning to:
                           ))}
                         </select>
                       </div>
-                      <TextInput label="ความสูงหน้างาน (ม.)" required invalid={missingFields.includes('ความสูงหน้างาน (ม.)')} value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} />
+                      <TextInput label="ความสูงหน้างาน (ม.)" required invalid={missingFields.includes('ความสูงหน้างาน (ม.)')} value={lamp.h} onChange={(v) => updateFormLamp(lamp.id, { h: v })} placeholder="ตัวอย่าง: 3" helpText="กรอกเฉพาะตัวเลข เช่น 3 (เมตร) ไม่ต้องใส่หน่วย" />
                       {(lamp.objectShape === 'circle' || lamp.objectShape === 'semicircle') ? (
                         <>
                           <Input
@@ -3020,7 +3028,7 @@ Use Chain-of-Thought reasoning to:
                           <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} allowBlank />
                         </>
                       )}
-                      <Input label="จำนวน" required invalid={missingFields.includes('จำนวน')} value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
+                      <Input label="จำนวน" required invalid={missingFields.includes('จำนวน')} value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} allowBlank placeholder="ตัวอย่าง: 1" helpText="กรอกเฉพาะตัวเลข เช่น 1 ไม่ต้องใส่หน่วย" />
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง<span className="text-red-600"> *</span></label>
                         <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ความลึกของโครง') ? 'border-red-400' : 'border-neutral-300'}`}>
