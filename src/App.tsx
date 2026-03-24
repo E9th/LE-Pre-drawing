@@ -3024,8 +3024,8 @@ Use Chain-of-Thought reasoning to:
                         </>
                       ) : (
                         <>
-                          <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} allowBlank />
-                          <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} allowBlank />
+                          <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} allowBlank placeholder="ตัวอย่าง: 1200" />
+                          <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} allowBlank placeholder="ตัวอย่าง: 800" />
                         </>
                       )}
                       <Input label="จำนวน" required invalid={missingFields.includes('จำนวน')} value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} allowBlank placeholder="ตัวอย่าง: 1" helpText="กรอกเฉพาะตัวเลข เช่น 1 ไม่ต้องใส่หน่วย" />
