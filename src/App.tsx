@@ -36,8 +36,8 @@ interface FormLampItem {
 // Higher render resolution for crisper user-downloaded PDFs.
 const TEMPLATE_DOWNLOAD_WIDTH = 4200;
 const TEMPLATE_DOWNLOAD_HEIGHT = 2968;
-const TEMPLATE_API_WIDTH = 1050;
-const TEMPLATE_API_HEIGHT = 742;
+const TEMPLATE_API_WIDTH = 1400;
+const TEMPLATE_API_HEIGHT = 990;
 
 const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
   { value: 'rectangle', label: 'Rectangle (สี่เหลี่ยม)' },
@@ -366,6 +366,7 @@ export default function App() {
   const [appView, setAppView] = useState<AppView>('form');
   const [pricingView, setPricingView] = useState<'summary' | 'type'>('summary');
   const [isSubmittingChecklist, setIsSubmittingChecklist] = useState(false);
+  const [submitProgressText, setSubmitProgressText] = useState('');
   const [formLamps, setFormLamps] = useState<FormLampItem[]>([
     {
       id: Math.random().toString(36).slice(2),
@@ -385,7 +386,6 @@ export default function App() {
   ]);
   const [plannerLampId, setPlannerLampId] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [logoDataUri, setLogoDataUri] = useState('');
 
   const [savedShapes, setSavedShapes] = useState<SavedShape[]>(() => {
     try {
@@ -432,24 +432,6 @@ export default function App() {
     JSON.stringify(formLamps),
     JSON.stringify(pages),
   ]);
-
-  React.useEffect(() => {
-    const loadLogo = async () => {
-      try {
-        const res = await fetch('/logo_LE.svg');
-        const svgText = await res.text();
-        const bytes = new TextEncoder().encode(svgText);
-        let binary = '';
-        bytes.forEach((b) => {
-          binary += String.fromCharCode(b);
-        });
-        setLogoDataUri(`data:image/svg+xml;base64,${window.btoa(binary)}`);
-      } catch (error) {
-        console.error('Failed to load logo SVG:', error);
-      }
-    };
-    loadLogo();
-  }, []);
 
   // Generate text path when text input changes
   const generateTextPath = useCallback(async () => {
@@ -1007,16 +989,33 @@ Use Chain-of-Thought reasoning to:
     });
   };
 
-  const logoLEUrl = logoDataUri || `${window.location.origin}/logo_LE.svg`;
+  const buildLeLogoVectorMarkup = (x: number, y: number, width: number, height: number) => {
+    const sourceW = 612;
+    const sourceH = 280;
+    const scale = Math.min(width / sourceW, height / sourceH);
+    const drawW = sourceW * scale;
+    const drawH = sourceH * scale;
+    const offsetX = x + (width - drawW) / 2;
+    const offsetY = y + (height - drawH) / 2;
+
+    return `
+      <g transform="translate(${offsetX} ${offsetY}) scale(${scale})">
+        <path d="${LOGO_LE_PATH}" fill="#111" />
+        <path d="${LOGO_LE_L_PATH}" fill="#fff" />
+        <path d="${LOGO_LE_AMPERSAND_PATH}" fill="#fff" />
+        <path d="${LOGO_LE_E_PATH}" fill="#fff" />
+      </g>
+    `;
+  };
 
   const generateCoverPageSVG = (details: DocumentDetails) => {
+    const coverLogoMarkup = buildLeLogoVectorMarkup(1500, 400, 1200, 549);
     return `
       <svg width="4200" height="2970" viewBox="0 0 4200 2970" xmlns="http://www.w3.org/2000/svg">
         <rect width="4200" height="2970" fill="white" />
         <rect x="100" y="100" width="4000" height="2770" fill="none" stroke="black" stroke-width="5"/>
         <rect x="120" y="120" width="3960" height="2730" fill="none" stroke="black" stroke-width="2"/>
-        
-        <image href="${logoLEUrl}" x="1500" y="400" width="1200" height="549" preserveAspectRatio="xMidYMid meet" />
+        ${coverLogoMarkup}
 
         <g transform="translate(1200, 1200)" font-family="sans-serif" font-size="40">
           <line x1="0" y1="0" x2="1800" y2="0" stroke="black" stroke-width="2"/>
@@ -1050,6 +1049,7 @@ Use Chain-of-Thought reasoning to:
   };
 
   const generateDrawingPageSVG = (details: DocumentDetails, page: PageData, pageNum: number, totalPages: number) => {
+    const sideLogoMarkup = buildLeLogoVectorMarkup(90, 80, 400, 183);
     return `
       <svg width="4200" height="2970" viewBox="0 0 4200 2970" xmlns="http://www.w3.org/2000/svg">
         <style>
@@ -1085,7 +1085,7 @@ Use Chain-of-Thought reasoning to:
         <g transform="translate(3500, 120)">
           <text x="290" y="60" font-family="sans-serif" font-size="45" font-weight="bold" text-anchor="middle">STRETCH CEILING</text>
           
-          <image href="${logoLEUrl}" x="90" y="80" width="400" height="183" preserveAspectRatio="xMidYMid meet" />
+          ${sideLogoMarkup}
           
           <text x="290" y="290" font-family="sans-serif" font-size="20" text-anchor="middle">539/2, 16-17 F. Gypsum Metropolitan Tower</text>
           <text x="290" y="320" font-family="sans-serif" font-size="20" text-anchor="middle">Rajthevee, Bangkok, Thailand, 10400</text>
@@ -1777,7 +1777,7 @@ Use Chain-of-Thought reasoning to:
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
     const moduleCost = totalModules * MODULE_PRICE_PER_UNIT;
     const fabricCost = totalAreaSqm * 2170;
-    const structureCost = totalAreaSqm * 5000;
+    const structureCost = structure === 'ทำ' ? totalAreaSqm * 5000 : 0;
     const installationCost = totalAreaSqm * 1670;
     const requiresScaffold = effectiveTemplatePages.some((p) => parseHeightMeters(p.h) >= 3);
     const scaffoldCost = requiresScaffold ? 8000 : 0;
@@ -1795,7 +1795,7 @@ Use Chain-of-Thought reasoning to:
       subtotalBeforeGP,
       estimatedPrice,
     };
-  }, [effectiveTemplatePages]);
+  }, [effectiveTemplatePages, structure]);
 
   const pricingByType = useMemo(() => {
     const areaDenominator = pricingSummary.totalAreaSqm > 0 ? pricingSummary.totalAreaSqm : 1;
@@ -2151,7 +2151,9 @@ Use Chain-of-Thought reasoning to:
       push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
       push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
       push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
-      push(`<g opacity="0.10" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:${compact ? 72 : 88}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.22} ${pagePxH * 0.30})"><text x="${pagePxW * 0.22}" y="${pagePxH * 0.30}" text-anchor="middle" class="th" style="font-size:${compact ? 92 : 112}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:${compact ? 100 : 124}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.78} ${pagePxH * 0.70})"><text x="${pagePxW * 0.78}" y="${pagePxH * 0.70}" text-anchor="middle" class="th" style="font-size:${compact ? 92 : 112}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
 
       let y = tableY;
       let x = marginX;
@@ -2206,7 +2208,9 @@ Use Chain-of-Thought reasoning to:
       push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
       push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
       push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
-      push(`<g opacity="0.10" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:88px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.22} ${pagePxH * 0.30})"><text x="${pagePxW * 0.22}" y="${pagePxH * 0.30}" text-anchor="middle" class="th" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:124px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.78} ${pagePxH * 0.70})"><text x="${pagePxW * 0.78}" y="${pagePxH * 0.70}" text-anchor="middle" class="th" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
 
       noteWrappedLines.forEach((line, idx) => {
         const y = noteStartY + idx * lineStep;
@@ -2318,6 +2322,7 @@ Use Chain-of-Thought reasoning to:
       return;
     }
     setIsSendingBOQ(true);
+    setSubmitProgressText('กำลังสร้าง Drawing PDF สำหรับส่งไปยังระบบ...');
     try {
       const pdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
       const pdfDataUri = pdf.output('datauristring');
@@ -2357,9 +2362,10 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbyU-76zyPWdmb9LL49XmK8hXRMZjjPboR3pMvHJExEv2YRsGz6BkXD9j1__yw1g76PcAw/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbxr80dI_Ge3vg7SrD95vsrUOGWNldUgmyB_UQXSvQKup3_nketsRO_pTdQVanevHPeo_g/exec";
 
       try {
+        setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
         // ยิงแบบปกติก่อน (อ่านผลตอบกลับได้)
         const response = await fetch(apiUrl, {
           method: "POST",
@@ -2412,6 +2418,7 @@ Use Chain-of-Thought reasoning to:
       }
     } finally {
       setIsSendingBOQ(false);
+      setSubmitProgressText('');
     }
   };
 
@@ -2595,6 +2602,7 @@ Use Chain-of-Thought reasoning to:
     }
 
     setIsSubmittingChecklist(true);
+  setSubmitProgressText('กำลังสร้าง Drawing PDF สำหรับส่งข้อมูล...');
     try {
       let templatePdfBase64: string | null = null;
       let templateFilePayload: { mimeType: string; data: string; name: string } | null = null;
@@ -2612,6 +2620,7 @@ Use Chain-of-Thought reasoning to:
         }
       }
 
+      setSubmitProgressText('กำลังเตรียมตารางราคาและไฟล์ CSV...');
       const csvText = buildPricingCsvText();
       // Add UTF-8 BOM so Microsoft Excel detects Thai text encoding correctly.
       const csvTextWithBom = '\uFEFF' + csvText;
@@ -2686,9 +2695,10 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbyU-76zyPWdmb9LL49XmK8hXRMZjjPboR3pMvHJExEv2YRsGz6BkXD9j1__yw1g76PcAw/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbxr80dI_Ge3vg7SrD95vsrUOGWNldUgmyB_UQXSvQKup3_nketsRO_pTdQVanevHPeo_g/exec';
 
       try {
+        setSubmitProgressText('กำลังอัปโหลดข้อมูลไปยัง Google Sheet / GAS...');
         const response = await fetch(apiUrl, {
           method: 'POST',
           body: JSON.stringify(payload),
@@ -2728,6 +2738,7 @@ Use Chain-of-Thought reasoning to:
       alert('❌ ส่งข้อมูลไม่สำเร็จ: ' + msg);
     } finally {
       setIsSubmittingChecklist(false);
+      setSubmitProgressText('');
     }
   };
 
@@ -2771,11 +2782,11 @@ Use Chain-of-Thought reasoning to:
   const polygonViewBoxWidth = 600 / polygonCanvasZoom;
   const polygonViewBoxHeight = 400 / polygonCanvasZoom;
   const isGlobalBusy = isSendingBOQ || isSubmittingChecklist || isGeneratingPDF;
-  const globalBusyText = isSendingBOQ
+  const globalBusyText = submitProgressText || (isSendingBOQ
     ? 'กำลังประมวลผลและส่งข้อมูลไป BOQ...'
     : isSubmittingChecklist
       ? 'กำลังยืนยันข้อมูลและอัปโหลด...'
-      : 'กำลังสร้างไฟล์เอกสาร...';
+      : 'กำลังสร้างไฟล์เอกสาร...');
 
   if (appView === 'form') {
     return (
