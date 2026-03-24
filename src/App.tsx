@@ -367,6 +367,7 @@ export default function App() {
   const [pricingView, setPricingView] = useState<'summary' | 'type'>('summary');
   const [isSubmittingChecklist, setIsSubmittingChecklist] = useState(false);
   const [submitProgressText, setSubmitProgressText] = useState('');
+  const [logoSvgData, setLogoSvgData] = useState<{ viewBox: string; inner: string } | null>(null);
   const [formLamps, setFormLamps] = useState<FormLampItem[]>([
     {
       id: Math.random().toString(36).slice(2),
@@ -432,6 +433,32 @@ export default function App() {
     JSON.stringify(formLamps),
     JSON.stringify(pages),
   ]);
+
+  React.useEffect(() => {
+    const loadLogoForPdf = async () => {
+      try {
+        const response = await fetch('/logo_LE.svg');
+        if (!response.ok) return;
+        const rawSvg = await response.text();
+        const viewBoxMatch = rawSvg.match(/viewBox\s*=\s*"([^"]+)"/i);
+        const inner = rawSvg
+          .replace(/^[\s\S]*?<svg[^>]*>/i, '')
+          .replace(/<\/svg>\s*$/i, '')
+          .trim();
+
+        if (inner) {
+          setLogoSvgData({
+            viewBox: viewBoxMatch?.[1] || '0 0 612 280',
+            inner,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load /logo_LE.svg for PDF render:', error);
+      }
+    };
+
+    loadLogoForPdf();
+  }, []);
 
   // Generate text path when text input changes
   const generateTextPath = useCallback(async () => {
@@ -989,27 +1016,15 @@ Use Chain-of-Thought reasoning to:
     });
   };
 
-  const buildLeLogoVectorMarkup = (x: number, y: number, width: number, height: number) => {
-    const sourceW = 612;
-    const sourceH = 280;
-    const scale = Math.min(width / sourceW, height / sourceH);
-    const drawW = sourceW * scale;
-    const drawH = sourceH * scale;
-    const offsetX = x + (width - drawW) / 2;
-    const offsetY = y + (height - drawH) / 2;
-
-    return `
-      <g transform="translate(${offsetX} ${offsetY}) scale(${scale})">
-        <path d="${LOGO_LE_PATH}" fill="#111" />
-        <path d="${LOGO_LE_L_PATH}" fill="#fff" />
-        <path d="${LOGO_LE_AMPERSAND_PATH}" fill="#fff" />
-        <path d="${LOGO_LE_E_PATH}" fill="#fff" />
-      </g>
-    `;
+  const buildLeLogoMarkup = (x: number, y: number, width: number, height: number) => {
+    if (logoSvgData) {
+      return `<svg x="${x}" y="${y}" width="${width}" height="${height}" viewBox="${logoSvgData.viewBox}" preserveAspectRatio="xMidYMid meet">${logoSvgData.inner}</svg>`;
+    }
+    return `<image href="/logo_LE.svg" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" />`;
   };
 
   const generateCoverPageSVG = (details: DocumentDetails) => {
-    const coverLogoMarkup = buildLeLogoVectorMarkup(1500, 400, 1200, 549);
+    const coverLogoMarkup = buildLeLogoMarkup(1500, 400, 1200, 549);
     return `
       <svg width="4200" height="2970" viewBox="0 0 4200 2970" xmlns="http://www.w3.org/2000/svg">
         <rect width="4200" height="2970" fill="white" />
@@ -1049,7 +1064,7 @@ Use Chain-of-Thought reasoning to:
   };
 
   const generateDrawingPageSVG = (details: DocumentDetails, page: PageData, pageNum: number, totalPages: number) => {
-    const sideLogoMarkup = buildLeLogoVectorMarkup(90, 80, 400, 183);
+    const sideLogoMarkup = buildLeLogoMarkup(90, 80, 400, 183);
     return `
       <svg width="4200" height="2970" viewBox="0 0 4200 2970" xmlns="http://www.w3.org/2000/svg">
         <style>
@@ -2698,7 +2713,7 @@ Use Chain-of-Thought reasoning to:
       const apiUrl = 'https://script.google.com/macros/s/AKfycbxr80dI_Ge3vg7SrD95vsrUOGWNldUgmyB_UQXSvQKup3_nketsRO_pTdQVanevHPeo_g/exec';
 
       try {
-        setSubmitProgressText('กำลังอัปโหลดข้อมูลไปยัง Google Sheet / GAS...');
+        setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');
         const response = await fetch(apiUrl, {
           method: 'POST',
           body: JSON.stringify(payload),
@@ -3073,7 +3088,7 @@ Use Chain-of-Thought reasoning to:
               <button
                 onClick={submitChecklistForm}
                 disabled={isSubmittingChecklist}
-                className="rounded bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-60"
+                className="rounded bg-blue-700 px-4 py-2 text-sm font-medium !text-white hover:bg-blue-800 disabled:opacity-60 disabled:!text-white"
               >
                 {isSubmittingChecklist ? 'กำลังยืนยันข้อมูล...' : 'ยืนยันข้อมูล'}
               </button>
