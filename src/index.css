@@ -6,6 +6,58 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+:root {
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+textarea,
+input,
+select {
+  min-width: 0;
+}
+
+.planner-shell {
+  min-height: 100vh;
+}
+
+@supports (min-height: 100dvh) {
+  .planner-shell {
+    min-height: 100dvh;
+  }
+}
+
+.planner-sidebar {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 1023px) {
+  .planner-sidebar {
+    max-height: 55vh;
+  }
+}
+
 .cad-bg {
   background-color: #E4E3E0;
   background-image: 

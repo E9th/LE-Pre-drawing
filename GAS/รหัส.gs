@@ -60,6 +60,51 @@ function uploadBase64File_(folder, fileObj, fallbackName) {
   }
 }
 
+function appendPricingCsvSnapshot_(sheet, timestamp, submissionId, csvFileObj) {
+  if (!csvFileObj || !csvFileObj.data) {
+    sheet.appendRow(["Submission ID", submissionId, "Status", "NO_CSV_PAYLOAD", "Timestamp", timestamp]);
+    sheet.appendRow([""]);
+    return;
+  }
+
+  try {
+    var splitData = String(csvFileObj.data).split(",");
+    var base64Data = splitData.length > 1 ? splitData[1] : splitData[0];
+    var bytes = Utilities.base64Decode(base64Data);
+    var csvText = Utilities.newBlob(bytes).getDataAsString("UTF-8");
+
+    // Remove UTF-8 BOM if present.
+    if (csvText && csvText.charCodeAt(0) === 65279) {
+      csvText = csvText.substring(1);
+    }
+
+    var rows = Utilities.parseCsv(csvText);
+    if (!rows || rows.length === 0) {
+      sheet.appendRow(["Submission ID", submissionId, "Status", "EMPTY_CSV", "Timestamp", timestamp]);
+      sheet.appendRow([""]);
+      return;
+    }
+
+    sheet.appendRow(["Submission ID", submissionId, "Timestamp", timestamp]);
+    for (var i = 0; i < rows.length; i++) {
+      sheet.appendRow(rows[i]);
+    }
+    sheet.appendRow([""]);
+  } catch (err) {
+    sheet.appendRow([
+      "Submission ID",
+      submissionId,
+      "Status",
+      "CSV_PARSE_ERROR",
+      "Message",
+      err && err.message ? err.message : String(err),
+      "Timestamp",
+      timestamp,
+    ]);
+    sheet.appendRow([""]);
+  }
+}
+
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents || "{}");
@@ -131,6 +176,9 @@ function doPost(e) {
       "ลิงก์ไฟล์",
       "หมายเหตุ"
     ]);
+    var csvSnapshotSheet = getOrCreateSheet_(ss, "Pricing CSV Snapshot", [
+      "CSV Snapshot (same rows as user CSV export)"
+    ]);
 
     var folderId = "1chyuDE1Ib8hrRX42Q_T-q6SRM4Muk2YF";
     var folder = DriveApp.getFolderById(folderId);
@@ -184,6 +232,8 @@ function doPost(e) {
       csvUpload.url,
       csvUpload.error
     ]);
+
+    appendPricingCsvSnapshot_(csvSnapshotSheet, timestamp, submissionId, data.csvFile);
 
     for (var i = 0; i < lamps.length; i++) {
       var lamp = lamps[i] || {};
@@ -244,7 +294,7 @@ function doPost(e) {
 
     var finalArea = hasPricingSummary ? Number(pricing.totalAreaSqm) : totalAreaFromLamps;
     var finalModules = hasPricingSummary ? Number(pricing.totalModules) : totalModulesFromLamps;
-    var moduleCost = hasPricingSummary ? Number(pricing.moduleCost || 0) : finalModules * 21;
+    var moduleCost = hasPricingSummary ? Number(pricing.moduleCost || 0) : finalModules * 24;
     var fabricCost = hasPricingSummary ? Number(pricing.fabricCost || 0) : 0;
     var structureCost = hasPricingSummary ? Number(pricing.structureCost || 0) : 0;
     var installationCost = hasPricingSummary ? Number(pricing.installationCost || 0) : 0;
@@ -261,7 +311,7 @@ function doPost(e) {
       var structurePerType = structureCost * areaRatio;
       var installationPerType = installationCost * areaRatio;
       var scaffoldPerType = scaffoldCost * areaRatio;
-      var modulePerType = item.totalModulesPerType * 21;
+      var modulePerType = item.totalModulesPerType * 24;
       var subtotalPerType = fabricPerType + structurePerType + installationPerType + scaffoldPerType + modulePerType;
       var estimatePerType = subtotalPerType / 0.7;
 

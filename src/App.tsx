@@ -104,10 +104,12 @@ const shouldForceDualModuleLayout = (lightTemp: string): boolean => {
 const LED_MODULE_WATT = 1.44;
 const SWITCHING_POWER_WATT = 150;
 const SWITCHING_PRICE_PER_UNIT = 500;
+const MODULE_PRICE_PER_UNIT = 24;
+const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
 
-const roundUpToOneDecimal = (value: number): number => {
+const roundUpToInteger = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
-  return Math.ceil(value * 10) / 10;
+  return Math.ceil(value);
 };
 
 const escapeSvgText = (value: string): string => String(value ?? '')
@@ -357,7 +359,7 @@ export default function App() {
   const [lampD, setLampD] = useState('15 เซนติเมตร (Standard)');
   const [lampF, setLampF] = useState('ผ้าใบขาว');
   const [lampLight, setLampLight] = useState('3000K');
-  const [structure, setStructure] = useState('ทำ');
+  const [structure, setStructure] = useState('');
   const [aoName, setAoName] = useState('');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
   const [isDataConfirmed, setIsDataConfirmed] = useState(false);
@@ -1773,7 +1775,7 @@ Use Chain-of-Thought reasoning to:
   const pricingSummary = useMemo(() => {
     const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
-    const moduleCost = totalModules * 21;
+    const moduleCost = totalModules * MODULE_PRICE_PER_UNIT;
     const fabricCost = totalAreaSqm * 2170;
     const structureCost = totalAreaSqm * 5000;
     const installationCost = totalAreaSqm * 1670;
@@ -1807,7 +1809,7 @@ Use Chain-of-Thought reasoning to:
       const structureCostPerType = pricingSummary.structureCost * areaRatio;
       const installationCostPerType = pricingSummary.installationCost * areaRatio;
       const scaffoldCostPerType = pricingSummary.scaffoldCost * areaRatio;
-      const moduleCostPerType = totalModulesPerType * 21;
+      const moduleCostPerType = totalModulesPerType * MODULE_PRICE_PER_UNIT;
       const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + scaffoldCostPerType + moduleCostPerType;
       const estimatedPricePerType = subtotalBeforeGPPerType / 0.7;
 
@@ -1837,8 +1839,8 @@ Use Chain-of-Thought reasoning to:
       const heightM = (page?.bbH || 0) / 1000;
       const areaPerLamp = page?.exactAreaSqm || 0;
       const modulesPerLamp = Math.max(1, page?.moduleCount || 1);
-      const ledWattPerLamp = roundUpToOneDecimal(modulesPerLamp * LED_MODULE_WATT);
-      const ledWattPerType = roundUpToOneDecimal(item.totalModulesPerType * LED_MODULE_WATT);
+      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
+      const ledWattPerType = roundUpToInteger(item.totalModulesPerType * LED_MODULE_WATT);
       const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       const switchingPerType = Math.max(1, Math.ceil(ledWattPerType / SWITCHING_POWER_WATT));
       const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
@@ -1917,22 +1919,22 @@ Use Chain-of-Thought reasoning to:
       [
         'Type',
         'ขนาด (ม. x ม.)',
-        'พื้นที่/โคม (ตร.ม.)',
-        'Qty (pcs)',
+        'พื้นที่ (ตร.ม.)',
+        'จำนวนโคม (pcs.)',
         'พื้นที่รวม (ตร.ม.)',
         'Vinyl translucent cost',
-        'Structure Cost (THB)',
-        'Installation Cost (THB)',
-        'Scaffold Cost (THB)',
+        'Structure Cost (Wooden)',
+        'Installation LED Cost',
+        'Scaffold',
         'จำนวน module/โคม',
         'จำนวน module รวม',
-        'ราคา module/type',
-        'Watt LED/โคม',
-        'Watt LED/Type',
-        'Switching จำนวน/โคม',
-        'Switching จำนวน/Type',
-        'ราคา Switching/type',
-        'Summary price/type',
+        'ราคา module รวม/Type',
+        'Wattage รวม/โคม',
+        'Wattage รวม/Type',
+        'จำนวน Switching/โคม',
+        'จำนวน Switching/Type',
+        'ราคา Switching รวม',
+        'Price/Type',
       ],
     ];
 
@@ -1950,8 +1952,8 @@ Use Chain-of-Thought reasoning to:
         item.modulesPerLamp,
         item.totalModules,
         item.modulePricePerType.toFixed(2),
-        item.ledWattPerLamp.toFixed(2),
-        item.ledWattPerType.toFixed(2),
+        item.ledWattPerLamp.toFixed(0),
+        item.ledWattPerType.toFixed(0),
         item.switchingPerLamp,
         item.switchingPerType,
         item.switchingPricePerType.toFixed(2),
@@ -1974,7 +1976,7 @@ Use Chain-of-Thought reasoning to:
       totals.totalModules,
       totals.modulePricePerType.toFixed(2),
       '-',
-      totals.ledWattPerType.toFixed(2),
+      totals.ledWattPerType.toFixed(0),
       '-',
       totals.switchingPerType,
       totals.switchingPricePerType.toFixed(2),
@@ -2035,36 +2037,36 @@ Use Chain-of-Thought reasoning to:
     );
 
     const headers = [
-      'Type', 'ขนาด (ม. x ม.)', 'พื้นที่/โคม', 'Qty', 'พื้นที่รวม', 'Vinyl', 'Structure', 'Install', 'Scaffold',
-      'Mod/โคม', 'Mod รวม', 'ราคา module', 'W/โคม', 'W/Type', 'SW/โคม', 'SW/Type', 'ราคา SW', 'Summary',
+      'Type', 'ขนาด (ม. x ม.)', 'พื้นที่ (ตร.ม.)', 'จำนวนโคม (pcs.)', 'พื้นที่รวม (ตร.ม.)', 'Vinyl translucent cost', 'Structure Cost (Wooden)', 'Installation LED Cost', 'Scaffold',
+      'จำนวน module/โคม', 'จำนวน module รวม', 'ราคา module รวม/Type', 'Wattage รวม/โคม', 'Wattage รวม/Type', 'จำนวน Switching/โคม', 'จำนวน Switching/Type', 'ราคา Switching รวม', 'Price/Type',
     ];
 
     const bodyRows = pricingExportRows.map((row) => [
       row.typeName,
       row.sizeMetersText,
-      row.areaPerLamp.toFixed(2),
-      row.qty,
-      row.totalAreaPerType.toFixed(2),
-      row.vinylCost.toFixed(0),
-      row.structureCost.toFixed(0),
-      row.installationCost.toFixed(0),
-      row.scaffoldCost.toFixed(0),
-      row.modulesPerLamp,
-      row.totalModules,
-      row.modulePricePerType.toFixed(0),
-      row.ledWattPerLamp.toFixed(1),
-      row.ledWattPerType.toFixed(1),
-      row.switchingPerLamp,
-      row.switchingPerType,
-      row.switchingPricePerType.toFixed(0),
-      row.summaryPricePerType.toFixed(0),
+      row.areaPerLamp.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      row.qty.toLocaleString('th-TH'),
+      row.totalAreaPerType.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      row.vinylCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.modulesPerLamp.toLocaleString('th-TH'),
+      row.totalModules.toLocaleString('th-TH'),
+      row.modulePricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.ledWattPerLamp.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.switchingPerLamp.toLocaleString('th-TH'),
+      row.switchingPerType.toLocaleString('th-TH'),
+      row.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      row.summaryPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
     ]);
 
     bodyRows.push([
-      'Totally', '-', '-', totals.qty, totals.totalAreaPerType.toFixed(2), totals.vinylCost.toFixed(0),
-      totals.structureCost.toFixed(0), totals.installationCost.toFixed(0), totals.scaffoldCost.toFixed(0), '-', totals.totalModules,
-      totals.modulePricePerType.toFixed(0), '-', totals.ledWattPerType.toFixed(1), '-', totals.switchingPerType,
-      totals.switchingPricePerType.toFixed(0), totals.summaryPricePerType.toFixed(0),
+      'Totally', '-', '-', totals.qty.toLocaleString('th-TH'), totals.totalAreaPerType.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), totals.vinylCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      totals.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), totals.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), totals.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.totalModules.toLocaleString('th-TH'),
+      totals.modulePricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.switchingPerType.toLocaleString('th-TH'),
+      totals.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), totals.summaryPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
     ]);
 
     const pagePxW = 4200;
@@ -2149,6 +2151,7 @@ Use Chain-of-Thought reasoning to:
       push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
       push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
       push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
+      push(`<g opacity="0.10" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:${compact ? 72 : 88}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
 
       let y = tableY;
       let x = marginX;
@@ -2165,7 +2168,7 @@ Use Chain-of-Thought reasoning to:
         row.forEach((cell, colIdx) => {
           const w = colWidths[colIdx];
           const value = String(cell);
-          const isNumeric = /^-?\d+(?:\.\d+)?$/.test(value);
+          const isNumeric = /^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^-?\d+(?:\.\d+)?$/.test(value);
           push(`<rect x="${rowX}" y="${rowY}" width="${w}" height="${rowHeight}" fill="white" stroke="#c4c4c4"/>`);
           if (isNumeric) {
             push(`<text x="${rowX + w - 8}" y="${rowY + textBaseline}" text-anchor="end" class="td">${escapeSvgText(value)}</text>`);
@@ -2203,6 +2206,7 @@ Use Chain-of-Thought reasoning to:
       push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
       push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
       push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
+      push(`<g opacity="0.10" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:88px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
 
       noteWrappedLines.forEach((line, idx) => {
         const y = noteStartY + idx * lineStep;
@@ -2353,7 +2357,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbwW0FzY3j2zMUxeVOFvawn4aGkv51ofqvFP5KRoO3ho19ADzt_pUE2Q_CDBE8JKI21L6A/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbyU-76zyPWdmb9LL49XmK8hXRMZjjPboR3pMvHJExEv2YRsGz6BkXD9j1__yw1g76PcAw/exec";
 
       try {
         // ยิงแบบปกติก่อน (อ่านผลตอบกลับได้)
@@ -2579,8 +2583,8 @@ Use Chain-of-Thought reasoning to:
   };
 
   const submitChecklistForm = async () => {
-    if (!aoName.trim() || !docDetails.projectName.trim() || !docDetails.location.trim()) {
-      alert('กรุณากรอก AO/แผนก, ชื่อ Project และสถานที่หน้างานให้ครบ');
+    if (!aoName.trim() || !docDetails.projectName.trim() || !docDetails.location.trim() || !structure.trim()) {
+      alert('กรุณากรอก AO/แผนก, ชื่อ Project, สถานที่หน้างาน และเลือกคำตอบงานโครงสร้างให้ครบ');
       return;
     }
     const invalidLampIndex = formLamps.findIndex(l => getLampMissingFields(l).length > 0);
@@ -2609,7 +2613,9 @@ Use Chain-of-Thought reasoning to:
       }
 
       const csvText = buildPricingCsvText();
-      const csvBytes = new TextEncoder().encode(csvText);
+      // Add UTF-8 BOM so Microsoft Excel detects Thai text encoding correctly.
+      const csvTextWithBom = '\uFEFF' + csvText;
+      const csvBytes = new TextEncoder().encode(csvTextWithBom);
       let csvBinary = '';
       csvBytes.forEach((b) => {
         csvBinary += String.fromCharCode(b);
@@ -2680,7 +2686,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbwW0FzY3j2zMUxeVOFvawn4aGkv51ofqvFP5KRoO3ho19ADzt_pUE2Q_CDBE8JKI21L6A/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbyU-76zyPWdmb9LL49XmK8hXRMZjjPboR3pMvHJExEv2YRsGz6BkXD9j1__yw1g76PcAw/exec';
 
       try {
         const response = await fetch(apiUrl, {
@@ -2797,6 +2803,7 @@ Use Chain-of-Thought reasoning to:
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องงานโครงสร้างใหม่?<span className="text-red-600"> *</span></label>
                 <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
+                  <option value="">-- กรุณาเลือก --</option>
                   <option value="ทำ">ทำ</option>
                   <option value="ไม่ทำ">ไม่ทำ</option>
                 </select>
@@ -2808,7 +2815,7 @@ Use Chain-of-Thought reasoning to:
             <div className="grid grid-cols-1 gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 md:grid-cols-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">พื้นที่รวม (ตร.ม.)</p>
-                <p className="text-lg font-bold text-emerald-900">{pricingSummary.totalAreaSqm.toFixed(2)}</p>
+                <p className="text-lg font-bold text-emerald-900">{pricingSummary.totalAreaSqm.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">Module รวม (ชิ้น)</p>
@@ -2860,7 +2867,7 @@ Use Chain-of-Thought reasoning to:
                         <tr key={item.id} className="border-b border-cyan-100 last:border-0">
                           <td className="py-2 pr-3">{item.index}. {item.name}</td>
                           <td className="py-2 pr-3 text-right">{item.q}</td>
-                          <td className="py-2 pr-3 text-right">{item.totalAreaPerType.toFixed(2)} ตร.ม.</td>
+                          <td className="py-2 pr-3 text-right">{item.totalAreaPerType.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ตร.ม.</td>
                           <td className="py-2 pr-3 text-right">{item.totalModulesPerType.toLocaleString('th-TH')}</td>
                           <td className="py-2 pr-3 text-right">{item.subtotalBeforeGPPerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
                           <td className="py-2 text-right font-semibold text-cyan-900">{item.estimatedPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
@@ -3078,8 +3085,8 @@ Use Chain-of-Thought reasoning to:
   }
 
   return (
-    <div className="flex h-screen bg-neutral-100 font-sans text-neutral-900">
-      <div className="w-80 bg-white border-r border-neutral-200 flex flex-col shadow-sm z-10">
+    <div className="planner-shell flex min-h-screen flex-col bg-neutral-100 font-sans text-neutral-900 lg:h-screen lg:flex-row">
+      <div className="planner-sidebar z-10 flex w-full flex-col border-b border-neutral-200 bg-white shadow-sm lg:w-80 lg:border-b-0 lg:border-r">
         <div className="p-4 border-b border-neutral-200">
           <h1 className="text-lg font-semibold tracking-tight">Module Array Planner</h1>
           <p className="text-xs text-neutral-500 mt-1">Automate module distribution</p>
@@ -3088,7 +3095,7 @@ Use Chain-of-Thought reasoning to:
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="flex-1 space-y-6 overflow-y-auto p-4">
           <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-3">
             <label className="text-xs font-semibold uppercase tracking-wider text-sky-700">Editing Lamp/Page</label>
             <select
@@ -3657,8 +3664,8 @@ Use Chain-of-Thought reasoning to:
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col relative overflow-hidden cad-bg">
-        <div className="absolute top-4 right-4 flex gap-2 z-10 bg-white p-1 rounded-lg shadow-sm border border-neutral-200">
+      <div className="cad-bg relative flex min-h-[45vh] flex-1 flex-col overflow-hidden lg:min-h-0">
+        <div className="absolute left-2 right-2 top-2 z-10 flex flex-wrap gap-2 rounded-lg border border-neutral-200 bg-white/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75 lg:left-auto lg:right-4 lg:top-4 lg:w-auto">
           <button onClick={() => setZoom(z => z * 1.2)} className="p-2 hover:bg-neutral-100 rounded text-neutral-600" title="Zoom In"><ZoomIn size={18} /></button>
           <button onClick={() => setZoom(z => z / 1.2)} className="p-2 hover:bg-neutral-100 rounded text-neutral-600" title="Zoom Out"><ZoomOut size={18} /></button>
           <button onClick={() => setZoom(1)} className="p-2 hover:bg-neutral-100 rounded text-neutral-600" title="Reset Zoom"><Maximize size={18} /></button>
@@ -3674,7 +3681,7 @@ Use Chain-of-Thought reasoning to:
           <button disabled={!isDataConfirmed} onClick={downloadPDF} className="p-2 hover:bg-neutral-100 rounded text-red-600 disabled:opacity-50" title="Download PDF"><FileText size={18} /></button>
         </div>
         
-        <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
+        <div className="flex flex-1 items-center justify-center overflow-hidden p-3 pt-20 sm:p-4 sm:pt-20 lg:p-8 lg:pt-8">
           {!result.error && (
             <svg ref={svgRef} width="100%" height="100%" viewBox={viewBox} className="drop-shadow-sm">
               <g style={{ fontSize: `${dynamicFontSize}px` }} className="font-mono fill-neutral-600" stroke="none">
@@ -3781,12 +3788,12 @@ Use Chain-of-Thought reasoning to:
       
       {showTemplateSettings && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl">
             <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Template Settings & Export</h3>
               <button onClick={() => setShowTemplateSettings(false)} className="text-neutral-500 hover:text-neutral-800"><X size={20} /></button>
             </div>
-            <div className="p-4 overflow-y-auto flex-1 grid grid-cols-2 gap-4">
+            <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 md:grid-cols-2">
               <TextInput label="Project Name" value={docDetails.projectName} onChange={(v) => setDocDetails({...docDetails, projectName: v})} />
               <TextInput label="Location" value={docDetails.location} onChange={(v) => setDocDetails({...docDetails, location: v})} />
               <TextInput label="Project Number" value={docDetails.projectNumber} onChange={(v) => setDocDetails({...docDetails, projectNumber: v})} />
@@ -3809,6 +3816,7 @@ Use Chain-of-Thought reasoning to:
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-green-700 mb-1">ทำโครงสร้างส่วนกลางไหม?</label>
                         <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full px-2 py-1.5 text-sm border border-green-300 rounded bg-white">
+                          <option value="">-- กรุณาเลือก --</option>
                           <option value="ทำ">ทำ</option>
                           <option value="ไม่ทำ">ไม่ทำ</option>
                         </select>
@@ -3819,9 +3827,9 @@ Use Chain-of-Thought reasoning to:
 
                 <details className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50">
                   <summary className="cursor-pointer list-none p-3 text-sm font-medium text-emerald-800">Pricing Breakdown</summary>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 pb-3 text-sm">
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-2 px-3 pb-3 text-sm md:grid-cols-2">
                     <div className="text-neutral-600">Total Area (sqm)</div>
-                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.totalAreaSqm.toFixed(2)}</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.totalAreaSqm.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
 
                     <div className="text-neutral-600">Total Modules (pcs)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.totalModules.toLocaleString('th-TH')}</div>
@@ -3838,7 +3846,7 @@ Use Chain-of-Thought reasoning to:
                     <div className="text-neutral-600">Scaffolding Cost (THB)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
 
-                    <div className="text-neutral-600">Module Cost @ 21 THB (THB)</div>
+                    <div className="text-neutral-600">Module Cost @ 24 THB (THB)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
 
                     <div className="text-neutral-600">Subtotal Before GP (THB)</div>
@@ -3857,7 +3865,7 @@ Use Chain-of-Thought reasoning to:
                               <span className="font-semibold text-neutral-800">{item.index}. {item.name}</span>
                               <span className="font-semibold text-emerald-800">{item.estimatedPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท</span>
                             </div>
-                            <div className="mt-1 text-neutral-600">จำนวน {item.q} | พื้นที่ {item.totalAreaPerType.toFixed(2)} ตร.ม. | Module {item.totalModulesPerType.toLocaleString('th-TH')}</div>
+                            <div className="mt-1 text-neutral-600">จำนวน {item.q} | พื้นที่ {item.totalAreaPerType.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ตร.ม. | Module {item.totalModulesPerType.toLocaleString('th-TH')}</div>
                             <div className="text-neutral-600">ต้นทุนก่อน GP {item.subtotalBeforeGPPerType.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท</div>
                           </div>
                         ))}
@@ -3894,7 +3902,7 @@ Use Chain-of-Thought reasoning to:
                 )}
               </div>
               
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
                 <button onClick={() => setShowTemplateSettings(false)} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 rounded">Cancel</button>
                 <button
                   onClick={downloadPricingPDF}
