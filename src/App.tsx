@@ -36,8 +36,8 @@ interface FormLampItem {
 // Higher render resolution for crisper user-downloaded PDFs.
 const TEMPLATE_DOWNLOAD_WIDTH = 4200;
 const TEMPLATE_DOWNLOAD_HEIGHT = 2968;
-const TEMPLATE_API_WIDTH = 1400;
-const TEMPLATE_API_HEIGHT = 990;
+const TEMPLATE_API_WIDTH = 1680;
+const TEMPLATE_API_HEIGHT = 1188;
 
 const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
   { value: 'rectangle', label: 'Rectangle (สี่เหลี่ยม)' },
@@ -132,13 +132,20 @@ const getNextShapeName = (lamps: FormLampItem[]): string => {
 
 const normalizeShapeName = (name: string): string => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-const Input = ({ label, value, onChange, required = false, invalid = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean }) => (
+const Input = ({ label, value, onChange, required = false, invalid = false, allowBlank = false }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean, allowBlank?: boolean }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">{label}{required && <span className="text-red-600"> *</span>}</label>
     <input 
       type="number" 
-      value={value} 
-      onChange={(e) => onChange(Number(e.target.value))}
+      value={allowBlank && !Number.isFinite(value) ? '' : value}
+      onChange={(e) => {
+        const raw = e.target.value;
+        if (allowBlank && raw === '') {
+          onChange(Number.NaN);
+          return;
+        }
+        onChange(Number(raw));
+      }}
       className={`w-full px-2 py-1.5 text-sm border rounded focus:ring-1 outline-none transition-all font-mono bg-white ${invalid ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-neutral-300 focus:border-blue-500 focus:ring-blue-500'}`}
     />
   </div>
@@ -373,8 +380,8 @@ export default function App() {
       id: Math.random().toString(36).slice(2),
       objectShape: 'rectangle',
       shapeName: 'SC-01',
-      w: 0,
-      l: 0,
+      w: Number.NaN,
+      l: Number.NaN,
       innerDia: 500,
       modulesPerLamp: 1,
       q: 1,
@@ -2560,8 +2567,8 @@ Use Chain-of-Thought reasoning to:
         id: Math.random().toString(36).slice(2),
         objectShape: 'rectangle',
         shapeName: getNextShapeName(prev),
-        w: 0,
-        l: 0,
+        w: Number.NaN,
+        l: Number.NaN,
         innerDia: 500,
         modulesPerLamp: 1,
         q: 1,
@@ -2827,7 +2834,7 @@ Use Chain-of-Thought reasoning to:
               <TextInput label="Project Number" value={docDetails.projectNumber} onChange={(v) => setDocDetails({ ...docDetails, projectNumber: v })} placeholder="ตัวอย่าง: XXXX-XXX" />
               <TextInput label="ผู้ติดต่อ / Client" value={docDetails.client} onChange={(v) => setDocDetails({ ...docDetails, client: v })} />
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องงานโครงสร้างใหม่?<span className="text-red-600"> *</span></label>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ต้องการให้ทำโครงสร้างไหม?<span className="text-red-600"> *</span></label>
                 <select value={structure} onChange={(e) => setStructure(e.target.value)} className="w-full rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm">
                   <option value="">-- กรุณาเลือก --</option>
                   <option value="ทำ">ทำ</option>
@@ -2980,6 +2987,7 @@ Use Chain-of-Thought reasoning to:
                             invalid={missingFields.includes('กว้าง (มม.)') || missingFields.includes('ยาว (มม.)')}
                             value={lamp.w}
                             onChange={(v) => updateFormLamp(lamp.id, { w: v, l: v })}
+                            allowBlank
                           />
                           <div className="rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">ทรงนี้ใช้ Diameter เดียว ระบบจะเท่ากับกว้างและยาวอัตโนมัติ</div>
                         </>
@@ -2990,7 +2998,13 @@ Use Chain-of-Thought reasoning to:
                             required
                             invalid={missingFields.includes('กว้าง (มม.)') || missingFields.includes('ยาว (มม.)')}
                             value={lamp.w}
-                            onChange={(v) => updateFormLamp(lamp.id, { w: v, l: v, innerDia: Math.min(lamp.innerDia, Math.max(1, v - 1)) })}
+                            onChange={(v) => {
+                              const nextInner = Number.isFinite(v)
+                                ? Math.min(lamp.innerDia, Math.max(1, v - 1))
+                                : lamp.innerDia;
+                              updateFormLamp(lamp.id, { w: v, l: v, innerDia: nextInner });
+                            }}
+                            allowBlank
                           />
                           <Input
                             label="Inner Dia. (มม.)"
@@ -3002,8 +3016,8 @@ Use Chain-of-Thought reasoning to:
                         </>
                       ) : (
                         <>
-                          <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} />
-                          <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} />
+                          <Input label="กว้าง (มม.)" required invalid={missingFields.includes('กว้าง (มม.)')} value={lamp.w} onChange={(v) => updateFormLamp(lamp.id, { w: v })} allowBlank />
+                          <Input label="ยาว (มม.)" required invalid={missingFields.includes('ยาว (มม.)')} value={lamp.l} onChange={(v) => updateFormLamp(lamp.id, { l: v })} allowBlank />
                         </>
                       )}
                       <Input label="จำนวน" required invalid={missingFields.includes('จำนวน')} value={lamp.q} onChange={(v) => updateFormLamp(lamp.id, { q: v })} />
