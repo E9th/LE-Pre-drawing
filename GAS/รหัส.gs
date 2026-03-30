@@ -14,6 +14,57 @@ function toNumber_(value, fallback) {
   return isFinite(n) ? n : fallback;
 }
 
+function getLineSourceId_(source) {
+  if (!source) return "";
+  return source.groupId || source.roomId || source.userId || "";
+}
+
+function replyLineText_(token, replyToken, text) {
+  if (!token || !replyToken) return;
+  UrlFetchApp.fetch("https://api.line.me/v2/bot/message/reply", {
+    method: "post",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + token,
+    },
+    payload: JSON.stringify({
+      replyToken: replyToken,
+      messages: [{ type: "text", text: text }],
+    }),
+    muteHttpExceptions: true,
+  });
+}
+
+function handleLineWebhook_(data, token) {
+  var events = Array.isArray(data && data.events) ? data.events : [];
+  if (events.length === 0) return;
+
+  var props = PropertiesService.getScriptProperties();
+  for (var i = 0; i < events.length; i++) {
+    var event = events[i] || {};
+    var source = event.source || {};
+    var sourceId = getLineSourceId_(source);
+    if (sourceId) {
+      props.setProperty("LINE_LAST_SOURCE_ID", sourceId);
+    }
+
+    var isAskGroupIdCommand =
+      event.type === "message" &&
+      event.message &&
+      event.message.type === "text" &&
+      String(event.message.text || "").trim() === "ขอไอดีกลุ่ม";
+
+    if (isAskGroupIdCommand && event.replyToken) {
+      var sourceType = source.type || "user";
+      var label = sourceType === "group" ? "groupId" : (sourceType === "room" ? "roomId" : "userId");
+      var text = sourceId
+        ? "ID นี้คือ " + label + ":\n" + sourceId
+        : "ไม่พบ ID ของแชทนี้";
+      replyLineText_(token, event.replyToken, text);
+    }
+  }
+}
+
 function uploadBase64File_(folder, fileObj, fallbackName) {
   if (!fileObj || !fileObj.data) {
     return {
@@ -62,10 +113,17 @@ function uploadBase64File_(folder, fileObj, fallbackName) {
 
 function doPost(e) {
   try {
-    var data = JSON.parse(e.postData.contents || "{}");
+    var rawBody = e && e.postData && e.postData.contents ? e.postData.contents : "{}";
+    var data = JSON.parse(rawBody || "{}");
 
-    var token = "1SHmvfWgLkqNFZYHoN0uCAmWWE7thyUJ9teVGEG9Xq54FgFuyGeJiWftqe6Z1+D7i5jwzbWSgbo+33URCSK1PZJXHfhD9IXxCv3lkaai6CbIXveC7gk/z7M6OGE0Ba/Nn8CGsASCY9Ft6vnFC3jBKgdB04t89/1O/w1cDnyilFU=";
-    var adminUserId = "C1999182f542981df93a07216fedb0147";
+    var token = "R2bZ1XqC0aFmm40SaO7PWUC+HtdhQDuXqv8d6R9OC3ndRfDGlrJ32ua3rfASwGQocKfTP0jazV5+cjLzVhPx39LWYOUIWxS4EPEYflAM/gmGLX/RbMHliE2WB8sbZDW1kZsQm2u9yAaqdL9OOSmW3QdB04t89/1O/w1cDnyilFU=";
+    var adminUserId = "C2875532a37149db3079cca02defce562";
+
+    // เส้นทาง webhook จาก LINE: ต้องตอบเร็วเพื่อไม่ให้ Verify timeout
+    if (Array.isArray(data.events)) {
+      handleLineWebhook_(data, token);
+      return ContentService.createTextOutput("ok").setMimeType(ContentService.MimeType.TEXT);
+    }
 
     var sheetId = "1MfbQTqNbsIkKe7l8BClj1YEkjb9aZO6oVCETqffYmhg";
     var ss = SpreadsheetApp.openById(sheetId);

@@ -102,7 +102,7 @@ const shouldForceDualModuleLayout = (lightTemp: string): boolean => {
 };
 
 const LED_MODULE_WATT = 1.44;
-const SWITCHING_POWER_WATT = 120;
+const SWITCHING_POWER_WATT = 150;
 const SWITCHING_PRICE_PER_UNIT = 500;
 const MODULE_PRICE_PER_UNIT = 24;
 const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
@@ -2392,7 +2392,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbxr80dI_Ge3vg7SrD95vsrUOGWNldUgmyB_UQXSvQKup3_nketsRO_pTdQVanevHPeo_g/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycby0zawMuMNWZWO8lLP6JYElY6IUMwO6JzTPUa3ABgTIlBMzdtmdi-ZqRmY_64zjBQwUJg/exec";
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
@@ -2725,7 +2725,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbxr80dI_Ge3vg7SrD95vsrUOGWNldUgmyB_UQXSvQKup3_nketsRO_pTdQVanevHPeo_g/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycby0zawMuMNWZWO8lLP6JYElY6IUMwO6JzTPUa3ABgTIlBMzdtmdi-ZqRmY_64zjBQwUJg/exec';
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');
