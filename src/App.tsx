@@ -102,7 +102,7 @@ const shouldForceDualModuleLayout = (lightTemp: string): boolean => {
 };
 
 const LED_MODULE_WATT = 1.44;
-const SWITCHING_POWER_WATT = 150;
+const SWITCHING_POWER_WATT = 120;
 const SWITCHING_PRICE_PER_UNIT = 500;
 const MODULE_PRICE_PER_UNIT = 24;
 const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
