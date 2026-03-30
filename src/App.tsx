@@ -112,6 +112,13 @@ const roundUpToInteger = (value: number): number => {
   return Math.ceil(value);
 };
 
+const roundUpToDecimalPlaces = (value: number, decimals: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  const safeDecimals = Math.max(0, decimals);
+  const factor = 10 ** safeDecimals;
+  return Math.ceil((value + Number.EPSILON) * factor) / factor;
+};
+
 const escapeSvgText = (value: string): string => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -1803,7 +1810,10 @@ Use Chain-of-Thought reasoning to:
   }, [plannerDraftPage]);
 
   const pricingSummary = useMemo(() => {
-    const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => sum + (p.exactAreaSqm * p.q), 0);
+    const totalAreaSqm = effectiveTemplatePages.reduce((sum, p) => {
+      const roundedAreaPerLamp = roundUpToDecimalPlaces(Math.max(0, p.exactAreaSqm), 2);
+      return sum + (roundedAreaPerLamp * p.q);
+    }, 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
     const moduleCost = totalModules * MODULE_PRICE_PER_UNIT;
     const fabricCost = totalAreaSqm * 2170;
@@ -1811,7 +1821,8 @@ Use Chain-of-Thought reasoning to:
     const installationCost = totalAreaSqm * 1670;
     const requiresScaffold = effectiveTemplatePages.some((p) => parseHeightMeters(p.h) >= 3);
     const scaffoldCost = requiresScaffold ? 8000 : 0;
-    const subtotalBeforeGP = fabricCost + structureCost + installationCost + moduleCost + scaffoldCost;
+    const subtotalCoreCost = fabricCost + structureCost + installationCost + moduleCost;
+    const subtotalBeforeGP = subtotalCoreCost + scaffoldCost;
     const estimatedPrice = subtotalBeforeGP / 0.7;
 
     return {
@@ -1832,15 +1843,16 @@ Use Chain-of-Thought reasoning to:
 
     return effectiveTemplatePages.map((p, idx) => {
       const totalModulesPerType = Math.max(1, p.moduleCount) * p.q;
-      const totalAreaPerType = p.exactAreaSqm * p.q;
+      const areaPerLampRounded = roundUpToDecimalPlaces(Math.max(0, p.exactAreaSqm), 2);
+      const totalAreaPerType = areaPerLampRounded * p.q;
       const areaRatio = totalAreaPerType / areaDenominator;
 
       const fabricCostPerType = pricingSummary.fabricCost * areaRatio;
       const structureCostPerType = pricingSummary.structureCost * areaRatio;
       const installationCostPerType = pricingSummary.installationCost * areaRatio;
-      const scaffoldCostPerType = pricingSummary.scaffoldCost * areaRatio;
+      const scaffoldCostPerType = 0;
       const moduleCostPerType = totalModulesPerType * MODULE_PRICE_PER_UNIT;
-      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + scaffoldCostPerType + moduleCostPerType;
+      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + moduleCostPerType;
       const estimatedPricePerType = subtotalBeforeGPPerType / 0.7;
 
       return {
@@ -1848,6 +1860,7 @@ Use Chain-of-Thought reasoning to:
         index: idx + 1,
         name: p.name,
         q: p.q,
+        areaPerLampRounded,
         totalAreaPerType,
         totalModulesPerType,
         fabricCostPerType,
@@ -1867,7 +1880,7 @@ Use Chain-of-Thought reasoning to:
       const page = pageById.get(item.id);
       const widthM = (page?.bbW || 0) / 1000;
       const heightM = (page?.bbH || 0) / 1000;
-      const areaPerLamp = page?.exactAreaSqm || 0;
+      const areaPerLamp = item.areaPerLampRounded;
       const modulesPerLamp = Math.max(1, page?.moduleCount || 1);
       const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
       const ledWattPerType = roundUpToInteger(item.totalModulesPerType * LED_MODULE_WATT);
@@ -1972,9 +1985,9 @@ Use Chain-of-Thought reasoning to:
       rows.push([
         item.typeName,
         item.sizeMetersText,
-        item.areaPerLamp.toFixed(3),
+        item.areaPerLamp.toFixed(2),
         item.qty,
-        item.totalAreaPerType.toFixed(3),
+        item.totalAreaPerType.toFixed(2),
         item.vinylCost.toFixed(2),
         item.structureCost.toFixed(2),
         item.installationCost.toFixed(2),
@@ -1997,20 +2010,20 @@ Use Chain-of-Thought reasoning to:
       '-',
       '-',
       totals.qty,
-      totals.totalAreaPerType.toFixed(3),
-      totals.vinylCost.toFixed(2),
-      totals.structureCost.toFixed(2),
-      totals.installationCost.toFixed(2),
-      totals.scaffoldCost.toFixed(2),
+      pricingSummary.totalAreaSqm.toFixed(2),
+      pricingSummary.fabricCost.toFixed(2),
+      pricingSummary.structureCost.toFixed(2),
+      pricingSummary.installationCost.toFixed(2),
+      pricingSummary.scaffoldCost.toFixed(2),
       '-',
-      totals.totalModules,
-      totals.modulePricePerType.toFixed(2),
+      pricingSummary.totalModules,
+      pricingSummary.moduleCost.toFixed(2),
       '-',
       totals.ledWattPerType.toFixed(0),
       '-',
       totals.switchingPerType,
       totals.switchingPricePerType.toFixed(2),
-      totals.summaryPricePerType.toFixed(2),
+      pricingSummary.estimatedPrice.toFixed(2),
     ]);
     rows.push([]);
     rows.push(['Please note that:']);
@@ -2027,6 +2040,7 @@ Use Chain-of-Thought reasoning to:
     aoName,
     structure,
     pricingExportRows,
+    pricingSummary,
   ]);
 
   const downloadPricingPDF = async () => {
@@ -2093,10 +2107,10 @@ Use Chain-of-Thought reasoning to:
     ]);
 
     bodyRows.push([
-      'Totally', '-', '-', totals.qty.toLocaleString('th-TH'), totals.totalAreaPerType.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), totals.vinylCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-      totals.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), totals.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), totals.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.totalModules.toLocaleString('th-TH'),
-      totals.modulePricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.switchingPerType.toLocaleString('th-TH'),
-      totals.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), totals.summaryPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      'Totally', '-', '-', totals.qty.toLocaleString('th-TH'), pricingSummary.totalAreaSqm.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), pricingSummary.fabricCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      pricingSummary.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', pricingSummary.totalModules.toLocaleString('th-TH'),
+      pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.switchingPerType.toLocaleString('th-TH'),
+      totals.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
     ]);
 
     const pagePxW = 4200;
@@ -2853,7 +2867,7 @@ Use Chain-of-Thought reasoning to:
 
             <div className="h-px bg-neutral-200" />
 
-            <div className="grid grid-cols-1 gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 md:grid-cols-4">
+            <div className="hidden grid grid-cols-1 gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 md:grid-cols-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">พื้นที่รวม (ตร.ม.)</p>
                 <p className="text-lg font-bold text-emerald-900">{pricingSummary.totalAreaSqm.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
@@ -2882,7 +2896,7 @@ Use Chain-of-Thought reasoning to:
               </button>
               <button
                 onClick={() => setPricingView('type')}
-                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'type' ? 'bg-cyan-600 !text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
+                className={`hidden rounded px-3 py-1.5 text-xs font-medium transition-colors ${pricingView === 'type' ? 'bg-cyan-600 !text-white' : 'text-cyan-700 hover:bg-cyan-50'}`}
               >
                 มุมมองแยก Type
               </button>
