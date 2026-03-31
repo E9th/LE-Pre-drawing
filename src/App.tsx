@@ -1815,20 +1815,29 @@ Use Chain-of-Thought reasoning to:
       return sum + (roundedAreaPerLamp * p.q);
     }, 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
+    const totalSwitching = effectiveTemplatePages.reduce((sum, p) => {
+      const modulesPerLamp = Math.max(1, p.moduleCount || 1);
+      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
+      const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
+      return sum + (switchingPerLamp * p.q);
+    }, 0);
     const moduleCost = totalModules * MODULE_PRICE_PER_UNIT;
+    const switchingCost = totalSwitching * SWITCHING_PRICE_PER_UNIT;
     const fabricCost = totalAreaSqm * 2170;
     const structureCost = structure === 'ทำ' ? totalAreaSqm * 5000 : 0;
     const installationCost = totalAreaSqm * 1670;
     const requiresScaffold = effectiveTemplatePages.some((p) => parseHeightMeters(p.h) >= 3);
     const scaffoldCost = requiresScaffold ? 8000 : 0;
-    const subtotalCoreCost = fabricCost + structureCost + installationCost + moduleCost;
+    const subtotalCoreCost = fabricCost + structureCost + installationCost + moduleCost + switchingCost;
     const subtotalBeforeGP = subtotalCoreCost + scaffoldCost;
     const estimatedPrice = subtotalBeforeGP / 0.7;
 
     return {
       totalAreaSqm,
       totalModules,
+      totalSwitching,
       moduleCost,
+      switchingCost,
       fabricCost,
       structureCost,
       installationCost,
@@ -1843,6 +1852,12 @@ Use Chain-of-Thought reasoning to:
 
     return effectiveTemplatePages.map((p, idx) => {
       const totalModulesPerType = Math.max(1, p.moduleCount) * p.q;
+      const modulesPerLamp = Math.max(1, p.moduleCount || 1);
+      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
+      const ledWattPerType = roundUpToInteger(totalModulesPerType * LED_MODULE_WATT);
+      const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
+      const switchingPerType = switchingPerLamp * p.q;
+      const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
       const areaPerLampRounded = roundUpToDecimalPlaces(Math.max(0, p.exactAreaSqm), 2);
       const totalAreaPerType = areaPerLampRounded * p.q;
       const areaRatio = totalAreaPerType / areaDenominator;
@@ -1852,7 +1867,7 @@ Use Chain-of-Thought reasoning to:
       const installationCostPerType = pricingSummary.installationCost * areaRatio;
       const scaffoldCostPerType = 0;
       const moduleCostPerType = totalModulesPerType * MODULE_PRICE_PER_UNIT;
-      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + moduleCostPerType;
+      const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + moduleCostPerType + switchingPricePerType;
       const estimatedPricePerType = subtotalBeforeGPPerType / 0.7;
 
       return {
@@ -1862,6 +1877,12 @@ Use Chain-of-Thought reasoning to:
         q: p.q,
         areaPerLampRounded,
         totalAreaPerType,
+        modulesPerLamp,
+        ledWattPerLamp,
+        ledWattPerType,
+        switchingPerLamp,
+        switchingPerType,
+        switchingPricePerType,
         totalModulesPerType,
         fabricCostPerType,
         structureCostPerType,
@@ -1881,12 +1902,12 @@ Use Chain-of-Thought reasoning to:
       const widthM = (page?.bbW || 0) / 1000;
       const heightM = (page?.bbH || 0) / 1000;
       const areaPerLamp = item.areaPerLampRounded;
-      const modulesPerLamp = Math.max(1, page?.moduleCount || 1);
-      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
-      const ledWattPerType = roundUpToInteger(item.totalModulesPerType * LED_MODULE_WATT);
-      const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
-      const switchingPerType = switchingPerLamp * item.q;
-      const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
+      const modulesPerLamp = item.modulesPerLamp;
+      const ledWattPerLamp = item.ledWattPerLamp;
+      const ledWattPerType = item.ledWattPerType;
+      const switchingPerLamp = item.switchingPerLamp;
+      const switchingPerType = item.switchingPerType;
+      const switchingPricePerType = item.switchingPricePerType;
 
       return {
         typeName: item.name,
@@ -2021,8 +2042,8 @@ Use Chain-of-Thought reasoning to:
       '-',
       totals.ledWattPerType.toFixed(0),
       '-',
-      totals.switchingPerType,
-      totals.switchingPricePerType.toFixed(2),
+      pricingSummary.totalSwitching,
+      pricingSummary.switchingCost.toFixed(2),
       pricingSummary.estimatedPrice.toFixed(2),
     ]);
     rows.push([]);
@@ -2109,8 +2130,8 @@ Use Chain-of-Thought reasoning to:
     bodyRows.push([
       'Totally', '-', '-', totals.qty.toLocaleString('th-TH'), pricingSummary.totalAreaSqm.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), pricingSummary.fabricCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
       pricingSummary.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', pricingSummary.totalModules.toLocaleString('th-TH'),
-      pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.switchingPerType.toLocaleString('th-TH'),
-      totals.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+      pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', pricingSummary.totalSwitching.toLocaleString('th-TH'),
+      pricingSummary.switchingCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
     ]);
 
     const pagePxW = 4200;
@@ -2387,7 +2408,9 @@ Use Chain-of-Thought reasoning to:
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
+          totalSwitching: pricingSummary.totalSwitching,
           moduleCost: pricingSummary.moduleCost,
+          switchingCost: pricingSummary.switchingCost,
           fabricCost: pricingSummary.fabricCost,
           structureCost: pricingSummary.structureCost,
           installationCost: pricingSummary.installationCost,
@@ -2728,7 +2751,9 @@ Use Chain-of-Thought reasoning to:
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
+          totalSwitching: pricingSummary.totalSwitching,
           moduleCost: pricingSummary.moduleCost,
+          switchingCost: pricingSummary.switchingCost,
           fabricCost: pricingSummary.fabricCost,
           structureCost: pricingSummary.structureCost,
           installationCost: pricingSummary.installationCost,
@@ -3910,6 +3935,9 @@ Use Chain-of-Thought reasoning to:
 
                     <div className="text-neutral-600">Module Cost @ 24 THB (THB)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
+
+                    <div className="text-neutral-600">Switching Cost (THB)</div>
+                    <div className="text-right font-semibold text-neutral-900">{pricingSummary.switchingCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
 
                     <div className="text-neutral-600">Subtotal Before GP (THB)</div>
                     <div className="text-right font-semibold text-neutral-900">{pricingSummary.subtotalBeforeGP.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
