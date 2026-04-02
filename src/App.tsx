@@ -7,7 +7,7 @@ import opentype from 'opentype.js';
 type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'semicircle' | 'u-shape' | 'c-shape' | 't-shape' | 'hollow-rect' | 'hexagon' | 'octagon' | 'custom' | 'polygon' | 'text';
 type LayoutType = 'grid' | 'staggered';
 type AppView = 'form' | 'planner';
-type LightControlType = 'On-Off' | 'Dimmable' | 'Tunable White';
+type LightControlType = '-' | 'On-Off' | 'Dimmable' | 'Tunable White';
 
 interface Point { x: number; y: number; }
 
@@ -67,13 +67,16 @@ const parseHeightMeters = (value: string): number => {
 };
 
 const getSpacingByDepth = (depth: string): { x: number; y: number } | null => {
-  if (depth.includes('10')) return { x: 100, y: 100 };
-  if (depth.includes('15')) return { x: 150, y: 150 };
-  if (depth.includes('20')) return { x: 200, y: 200 };
+  const match = String(depth || '').match(/(\d+)/);
+  const cm = match ? Number(match[1]) : Number.NaN;
+  if (cm === 5) return { x: 50, y: 50 };
+  if (cm === 10) return { x: 100, y: 100 };
+  if (cm === 15) return { x: 150, y: 150 };
+  if (cm === 20) return { x: 200, y: 200 };
   return null;
 };
 
-const getModuleColorsByLightTemp = (lightTemp: string, lightControl: LightControlType | string = 'On-Off'): { fill: string; stroke: string; dot: string } => {
+const getModuleColorsByLightTemp = (lightTemp: string, lightControl: LightControlType | string = '-'): { fill: string; stroke: string; dot: string } => {
   const normalized = String(lightTemp || '').toLowerCase();
   const normalizedControl = String(lightControl || '').toLowerCase();
 
@@ -100,7 +103,7 @@ const getModuleColorsByLightTemp = (lightTemp: string, lightControl: LightContro
   return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
 };
 
-const shouldForceDualModuleLayout = (lightTemp: string, lightControl: LightControlType | string = 'On-Off'): boolean => {
+const shouldForceDualModuleLayout = (lightTemp: string, lightControl: LightControlType | string = '-'): boolean => {
   const normalized = String(lightTemp || '').toLowerCase();
   const normalizedControl = String(lightControl || '').toLowerCase();
   // Keep backward compatibility for older saved data that may still have Tunable White in light temperature.
@@ -395,7 +398,7 @@ export default function App() {
   const [lampD, setLampD] = useState('15 เซนติเมตร (Standard)');
   const [lampF, setLampF] = useState('ผ้าใบขาว');
   const [lampLight, setLampLight] = useState('3000K');
-  const [lampControl, setLampControl] = useState<LightControlType>('On-Off');
+  const [lampControl, setLampControl] = useState<LightControlType>('-');
   const [structure, setStructure] = useState('');
   const [aoName, setAoName] = useState('');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
@@ -419,7 +422,7 @@ export default function App() {
       d: '10 เซนติเมตร',
       f: 'ผ้าใบขาว',
       t: '3000K',
-      c: 'On-Off',
+      c: '-',
       file: null,
     },
   ]);
@@ -1295,7 +1298,7 @@ Use Chain-of-Thought reasoning to:
     setLampD(lamp.d || '15 เซนติเมตร (Standard)');
     setLampF(lamp.f || 'ผ้าใบขาว');
     setLampLight(lamp.t || '3000K');
-    setLampControl(lamp.c || 'On-Off');
+    setLampControl(lamp.c || '-');
 
     if (lamp.objectShape === 'rectangle' || lamp.objectShape === 'custom') {
       setRectW(width);
@@ -1350,6 +1353,18 @@ Use Chain-of-Thought reasoning to:
     if (spaceX !== spacing.x) setSpaceX(spacing.x);
     if (spaceY !== spacing.y) setSpaceY(spacing.y);
   }, [lampD, spaceX, spaceY]);
+
+  React.useEffect(() => {
+    setFormLamps((prev) => {
+      let changed = false;
+      const next = prev.map((lamp) => {
+        if (lamp.c === lampControl) return lamp;
+        changed = true;
+        return { ...lamp, c: lampControl };
+      });
+      return changed ? next : prev;
+    });
+  }, [lampControl]);
 
   React.useEffect(() => {
     if (appView !== 'planner' || !plannerLampId) return;
@@ -1623,15 +1638,15 @@ Use Chain-of-Thought reasoning to:
       </g>
     ` : '';
 
+    const qty = toValidQty(lamp.q);
     const labelMarkup = `
-      <text x="0" y="${height + localPadding + localLabelFont}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">${lamp.shapeName || `Lamp ${index + 1}`}</text>
+      <text x="0" y="${height + localPadding + localLabelFont}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">${lamp.shapeName || `Lamp ${index + 1}`} x ${qty} SET</text>
       <text x="0" y="${height + localPadding + localLabelFont + localLabelGap}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">${moduleName} : ${modules.length} pcs.</text>
       <text x="0" y="${height + localPadding + localLabelFont + localLabelGap * 2}" font-size="${localLabelFont}" fill="#141414" font-family="sans-serif">Spacing : ${currentSpaceX}x${currentSpaceY} mm.</text>
       <text x="${width}" y="${height + localPadding + localLabelFont + localLabelGap * 2}" text-anchor="end" style="font-size: ${localFont * 0.8}px" class="font-sans fill-neutral-500 italic">* All dimensions are in mm</text>
     `;
 
     const areaSqm = (width * height) / 1000000;
-    const qty = toValidQty(lamp.q);
     const svgContent = `${dimensionMarkup}<path d="${shapePath}" fill="white" stroke="#525252" stroke-width="${localStroke * 2}" />${centerLineMarkup}${centerOffsetXMarkup}${centerOffsetYMarkup}${moduleRects}${labelMarkup}`;
 
     return {
@@ -1719,8 +1734,9 @@ Use Chain-of-Thought reasoning to:
       </g>
     ` : '';
 
+    const plannerQty = toValidQty(lampQ);
     const labelMarkup = `
-      <text x="0" y="${result.bbH + padding + labelFontSize}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">${objectName}</text>
+      <text x="0" y="${result.bbH + padding + labelFontSize}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">${objectName} x ${plannerQty} SET</text>
       <text x="0" y="${result.bbH + padding + labelFontSize + labelLineHeight}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">${moduleName} : ${result.modules.length} pcs.</text>
       <text x="0" y="${result.bbH + padding + labelFontSize + labelLineHeight * 2}" font-size="${labelFontSize}" fill="#141414" font-family="sans-serif">Spacing : ${spaceX}x${spaceY} mm.</text>
       <text x="${result.bbW}" y="${result.bbH + padding + labelFontSize + labelLineHeight * 2}" text-anchor="end" style="font-size: ${dynamicFontSize * 0.8}px" class="font-sans fill-neutral-500 italic">* All dimensions are in mm</text>
@@ -1898,7 +1914,7 @@ Use Chain-of-Thought reasoning to:
     const firstDimmablePageId = effectiveTemplatePages.find((p) => isDimmableControl(p.c))?.id || null;
 
     return effectiveTemplatePages.map((p, idx) => {
-      const lightControl = p.c || 'On-Off';
+      const lightControl = p.c || '-';
       const isDimmable = isDimmableControl(lightControl);
       const totalModulesPerType = Math.max(1, p.moduleCount) * p.q;
       const modulesPerLamp = Math.max(1, p.moduleCount || 1);
@@ -2074,6 +2090,7 @@ Use Chain-of-Thought reasoning to:
       ...(hasDimmableRows ? ['Driver PWM', 'Wise Play 2 Smart Keypad', 'Wise Play 2 Bridge', 'Commissioning Cost'] : []),
       'Price/Type',
     ];
+    const dimmableColStartIndex = 17;
 
     const rows: Array<Array<string | number>> = [
       ['L&E Costing Sheet (Preliminary)'],
@@ -2110,15 +2127,24 @@ Use Chain-of-Thought reasoning to:
 
       if (hasDimmableRows) {
         row.push(
-          item.driverPwmCost.toFixed(2),
-          item.wisePlaySmartKeypadCost.toFixed(2),
-          item.wisePlayBridgeCost.toFixed(2),
+          item.driverPwmQty,
+          item.wisePlaySmartKeypadQty,
+          item.wisePlayBridgeQty,
           item.commissioningCost.toFixed(2),
         );
       }
 
       row.push(item.summaryPricePerType.toFixed(2));
       rows.push(row);
+
+      if (hasDimmableRows && isDimmableControl(item.lightControl)) {
+        const dimmablePriceRow: Array<string | number> = Array(headers.length).fill('');
+        dimmablePriceRow[0] = `${item.typeName} (ราคา Dimmable)`;
+        dimmablePriceRow[dimmableColStartIndex] = item.driverPwmCost.toFixed(2);
+        dimmablePriceRow[dimmableColStartIndex + 1] = item.wisePlaySmartKeypadCost.toFixed(2);
+        dimmablePriceRow[dimmableColStartIndex + 2] = item.wisePlayBridgeCost.toFixed(2);
+        rows.push(dimmablePriceRow);
+      }
     });
 
     rows.push([]);
@@ -2144,15 +2170,25 @@ Use Chain-of-Thought reasoning to:
 
     if (hasDimmableRows) {
       totalRow.push(
-        pricingSummary.dimmableDriverCost.toFixed(2),
-        pricingSummary.dimmableSmartKeypadCost.toFixed(2),
-        pricingSummary.dimmableBridgeCost.toFixed(2),
+        pricingSummary.dimmableDriverQty,
+        pricingSummary.dimmableSmartKeypadQty,
+        pricingSummary.dimmableBridgeQty,
         pricingSummary.commissioningCost.toFixed(2),
       );
     }
 
     totalRow.push(pricingSummary.estimatedPrice.toFixed(2));
     rows.push(totalRow);
+
+    if (hasDimmableRows) {
+      const totalDimmablePriceRow: Array<string | number> = Array(headers.length).fill('');
+      totalDimmablePriceRow[0] = 'Totally (ราคา Dimmable)';
+      totalDimmablePriceRow[dimmableColStartIndex] = pricingSummary.dimmableDriverCost.toFixed(2);
+      totalDimmablePriceRow[dimmableColStartIndex + 1] = pricingSummary.dimmableSmartKeypadCost.toFixed(2);
+      totalDimmablePriceRow[dimmableColStartIndex + 2] = pricingSummary.dimmableBridgeCost.toFixed(2);
+      rows.push(totalDimmablePriceRow);
+    }
+
     rows.push([]);
     rows.push(['Please note that:']);
     rows.push(['- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์']);
@@ -2160,6 +2196,7 @@ Use Chain-of-Thought reasoning to:
     rows.push(['- ราคาอาจปรับตามหน้างานจริง']);
     rows.push([`- ค่า Switching คิดที่ ${SWITCHING_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว (สามารถปรับได้)`]);
     if (hasDimmableRows) {
+      rows.push(['- คอลัมน์ Driver PWM / Wise Play 2 Smart Keypad / Wise Play 2 Bridge: แถวหลักแสดงจำนวน และแถว "(ราคา Dimmable)" ด้านล่างแสดงราคารวม']);
       rows.push([`- Driver PWM คิดราคา ${DRIVER_PWM_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนใช้สมการเดียวกับ Supply (หาร 120)`]);
       rows.push([`- Wise Play 2 Smart Keypad คิดราคา ${WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
       rows.push([`- Wise Play 2 Bridge คิดราคา ${WISE_PLAY_BRIDGE_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
@@ -2230,8 +2267,9 @@ Use Chain-of-Thought reasoning to:
       ...(hasDimmableRows ? ['Driver PWM', 'Wise Play 2 Smart Keypad', 'Wise Play 2 Bridge', 'Commissioning Cost'] : []),
       'Price/Type',
     ];
+    const dimmableColStartIndex = 17;
 
-    const bodyRows = pricingExportRows.map((row) => {
+    const bodyRows = pricingExportRows.flatMap((row) => {
       const values: Array<string | number> = [
         row.typeName,
         row.sizeMetersText,
@@ -2254,15 +2292,26 @@ Use Chain-of-Thought reasoning to:
 
       if (hasDimmableRows) {
         values.push(
-          row.driverPwmCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-          row.wisePlaySmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-          row.wisePlayBridgeCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+          row.driverPwmQty.toLocaleString('th-TH'),
+          row.wisePlaySmartKeypadQty.toLocaleString('th-TH'),
+          row.wisePlayBridgeQty.toLocaleString('th-TH'),
           row.commissioningCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
         );
       }
 
       values.push(row.summaryPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }));
-      return values;
+      const rowsForType: Array<Array<string | number>> = [values];
+
+      if (hasDimmableRows && isDimmableControl(row.lightControl)) {
+        const dimmablePriceRow: Array<string | number> = Array(headers.length).fill('');
+        dimmablePriceRow[0] = `${row.typeName} (ราคา Dimmable)`;
+        dimmablePriceRow[dimmableColStartIndex] = row.driverPwmCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+        dimmablePriceRow[dimmableColStartIndex + 1] = row.wisePlaySmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+        dimmablePriceRow[dimmableColStartIndex + 2] = row.wisePlayBridgeCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+        rowsForType.push(dimmablePriceRow);
+      }
+
+      return rowsForType;
     });
 
     const totalRow: Array<string | number> = [
@@ -2274,15 +2323,24 @@ Use Chain-of-Thought reasoning to:
 
     if (hasDimmableRows) {
       totalRow.push(
-        pricingSummary.dimmableDriverCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        pricingSummary.dimmableSmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        pricingSummary.dimmableBridgeCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
+        pricingSummary.dimmableDriverQty.toLocaleString('th-TH'),
+        pricingSummary.dimmableSmartKeypadQty.toLocaleString('th-TH'),
+        pricingSummary.dimmableBridgeQty.toLocaleString('th-TH'),
         pricingSummary.commissioningCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
       );
     }
 
     totalRow.push(pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 0 }));
     bodyRows.push(totalRow);
+
+    if (hasDimmableRows) {
+      const totalDimmablePriceRow: Array<string | number> = Array(headers.length).fill('');
+      totalDimmablePriceRow[0] = 'Totally (ราคา Dimmable)';
+      totalDimmablePriceRow[dimmableColStartIndex] = pricingSummary.dimmableDriverCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+      totalDimmablePriceRow[dimmableColStartIndex + 1] = pricingSummary.dimmableSmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+      totalDimmablePriceRow[dimmableColStartIndex + 2] = pricingSummary.dimmableBridgeCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+      bodyRows.push(totalDimmablePriceRow);
+    }
 
     const pagePxW = 4200;
     const pagePxH = 2970;
@@ -2681,7 +2739,7 @@ Use Chain-of-Thought reasoning to:
 
     if (modW <= 0 || modH <= 0 || currentSpaceX <= 0 || currentSpaceY <= 0) return 1;
 
-    const forceDualModuleLayout = shouldForceDualModuleLayout(lamp.t || '', lamp.c || 'On-Off');
+    const forceDualModuleLayout = shouldForceDualModuleLayout(lamp.t || '', lamp.c || '-');
     const effectiveLayoutType: LayoutType = forceDualModuleLayout ? 'grid' : layoutType;
     const placementModW = forceDualModuleLayout ? modW * 2 : modW;
 
@@ -2783,7 +2841,7 @@ Use Chain-of-Thought reasoning to:
         d: '10 เซนติเมตร',
         f: 'ผ้าใบขาว',
         t: '3000K',
-        c: 'On-Off',
+        c: lampControl,
         file: null,
       };
       setPlannerLampId(nextLamp.id);
@@ -2816,7 +2874,7 @@ Use Chain-of-Thought reasoning to:
     if (!lamp.d.trim()) missing.push('ความลึกของโครง');
     if (!lamp.f.trim()) missing.push('ชนิดของผ้าใบ');
     if (!lamp.t.trim()) missing.push('อุณหภูมิแสง');
-    if (!String(lamp.c || '').trim()) missing.push('การควบคุมแสง');
+    if (!String(lamp.c || '').trim() || lamp.c === '-') missing.push('การควบคุมแสง');
     return missing;
   };
 
@@ -3244,6 +3302,7 @@ Use Chain-of-Thought reasoning to:
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ความลึกของโครง<span className="text-red-600"> *</span></label>
                         <select value={lamp.d} onChange={(e) => updateFormLamp(lamp.id, { d: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ความลึกของโครง') ? 'border-red-400' : 'border-neutral-300'}`}>
+                          <option value="5 เซนติเมตร">5 เซนติเมตร</option>
                           <option value="10 เซนติเมตร">10 เซนติเมตร</option>
                           <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
                           <option value="20 เซนติเมตร">20 เซนติเมตร</option>
@@ -3270,11 +3329,18 @@ Use Chain-of-Thought reasoning to:
                         </div>
                         <div>
                           <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">การควบคุมแสง<span className="text-red-600"> *</span></label>
-                          <select value={lamp.c} onChange={(e) => updateFormLamp(lamp.id, { c: e.target.value as LightControlType })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('การควบคุมแสง') ? 'border-red-400' : 'border-neutral-300'}`}>
+                          <select
+                            value={lamp.c}
+                            onChange={(e) => setLampControl(e.target.value as LightControlType)}
+                            disabled={index > 0}
+                            className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('การควบคุมแสง') ? 'border-red-400' : 'border-neutral-300'} ${index > 0 ? 'cursor-not-allowed bg-neutral-100 text-neutral-500' : ''}`}
+                          >
+                            <option value="-">-</option>
                             <option value="On-Off">เปิด-ปิด(On-Off)</option>
                             <option value="Dimmable">สามารถหรี่แสงได้ (Dimmable)</option>
                             <option value="Tunable White">เปลี่ยนอุณหภูมิแสงได้ (Tunable White)</option>
                           </select>
+                          {index > 0 && <p className="mt-1 text-[11px] text-neutral-500">ใช้ค่าร่วมทั้งโปรเจกต์ แก้ที่โคมรายการแรก</p>}
                         </div>
                       </div>
                       <div className="md:col-span-2">
@@ -3768,6 +3834,7 @@ Use Chain-of-Thought reasoning to:
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Depth (ความลึก)</label>
                 <select value={lampD} onChange={(e) => setLampD(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
+                  <option value="5 เซนติเมตร">5 เซนติเมตร</option>
                   <option value="10 เซนติเมตร">10 เซนติเมตร</option>
                   <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
                   <option value="20 เซนติเมตร">20 เซนติเมตร</option>
@@ -3795,6 +3862,7 @@ Use Chain-of-Thought reasoning to:
                 <div>
                   <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">การควบคุมแสง</label>
                   <select value={lampControl} onChange={(e) => setLampControl(e.target.value as LightControlType)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
+                    <option value="-">-</option>
                     <option value="On-Off">เปิด-ปิด(On-Off)</option>
                     <option value="Dimmable">สามารถหรี่แสงได้ (Dimmable)</option>
                     <option value="Tunable White">เปลี่ยนอุณหภูมิแสงได้ (Tunable White)</option>
