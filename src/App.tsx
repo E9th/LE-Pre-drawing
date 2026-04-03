@@ -8,6 +8,7 @@ type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'se
 type LayoutType = 'grid' | 'staggered';
 type AppView = 'form' | 'planner';
 type LightControlType = '-' | 'On-Off' | 'Dimmable' | 'Tunable White';
+type AdvancedControlMode = 'dimmable' | 'tunable' | null;
 
 interface Point { x: number; y: number; }
 
@@ -114,14 +115,47 @@ const LED_MODULE_WATT = 1.44;
 const SWITCHING_POWER_WATT = 120;
 const SWITCHING_PRICE_PER_UNIT = 500;
 const DRIVER_PWM_PRICE_PER_UNIT = 1150;
+const DRIVER_DT8_CCT_PRICE_PER_UNIT = 1150;
 const WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT = 1600;
+const WISE_PLAY_SMART_REMOTE_RSS05_PRICE_PER_UNIT = 1050;
 const WISE_PLAY_BRIDGE_PRICE_PER_UNIT = 1600;
 const COMMISSIONING_COST_PER_PROJECT = 5000;
 const MODULE_PRICE_PER_UNIT = 24;
 const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
+const ADVANCED_DRAWING_PASSWORD = 'kp_anakin';
 
 const isDimmableControl = (lightControl: LightControlType | string): boolean => {
   return String(lightControl || '').toLowerCase().includes('dimmable');
+};
+
+const isTunableWhiteControl = (lightControl: LightControlType | string): boolean => {
+  return String(lightControl || '').toLowerCase().includes('tunable');
+};
+
+const getAdvancedControlMode = (lightControl: LightControlType | string): AdvancedControlMode => {
+  if (isTunableWhiteControl(lightControl)) return 'tunable';
+  if (isDimmableControl(lightControl)) return 'dimmable';
+  return null;
+};
+
+const isAdvancedControl = (lightControl: LightControlType | string): boolean => {
+  return getAdvancedControlMode(lightControl) !== null;
+};
+
+const getDriverLabelByControlMode = (mode: AdvancedControlMode): string => {
+  return mode === 'tunable' ? 'Driver DT8 CCT' : 'Driver PWM';
+};
+
+const getSmartControllerLabelByControlMode = (mode: AdvancedControlMode): string => {
+  return mode === 'tunable' ? 'Wise Play2 Smart Remote RSS05' : 'Wise Play 2 Smart Keypad';
+};
+
+const getDriverUnitPriceByControlMode = (mode: AdvancedControlMode): number => {
+  return mode === 'tunable' ? DRIVER_DT8_CCT_PRICE_PER_UNIT : DRIVER_PWM_PRICE_PER_UNIT;
+};
+
+const getSmartControllerUnitPriceByControlMode = (mode: AdvancedControlMode): number => {
+  return mode === 'tunable' ? WISE_PLAY_SMART_REMOTE_RSS05_PRICE_PER_UNIT : WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT;
 };
 
 const roundUpToInteger = (value: number): number => {
@@ -1888,21 +1922,41 @@ Use Chain-of-Thought reasoning to:
       const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       return sum + (switchingPerLamp * p.q);
     }, 0);
-    const dimmablePages = effectiveTemplatePages.filter((p) => isDimmableControl(p.c));
-    const dimmableDriverQty = dimmablePages.reduce((sum, p) => {
+    const advancedPages = effectiveTemplatePages.filter((p) => isAdvancedControl(p.c));
+    const advancedControlTotals = advancedPages.reduce((sum, p) => {
       const modulesPerLamp = Math.max(1, p.moduleCount || 1);
       const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
       const driversPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
-      return sum + (driversPerLamp * p.q);
-    }, 0);
-    const dimmableSmartKeypadQty = dimmablePages.reduce((sum, p) => sum + p.q, 0);
-    const dimmableBridgeQty = dimmablePages.reduce((sum, p) => sum + p.q, 0);
+      const controlMode = getAdvancedControlMode(p.c);
+      const driverQtyPerType = driversPerLamp * p.q;
+      const smartControllerQtyPerType = p.q;
+      const bridgeQtyPerType = p.q;
+
+      return {
+        driverQty: sum.driverQty + driverQtyPerType,
+        smartControllerQty: sum.smartControllerQty + smartControllerQtyPerType,
+        bridgeQty: sum.bridgeQty + bridgeQtyPerType,
+        driverCost: sum.driverCost + (driverQtyPerType * getDriverUnitPriceByControlMode(controlMode)),
+        smartControllerCost: sum.smartControllerCost + (smartControllerQtyPerType * getSmartControllerUnitPriceByControlMode(controlMode)),
+        bridgeCost: sum.bridgeCost + (bridgeQtyPerType * WISE_PLAY_BRIDGE_PRICE_PER_UNIT),
+      };
+    }, {
+      driverQty: 0,
+      smartControllerQty: 0,
+      bridgeQty: 0,
+      driverCost: 0,
+      smartControllerCost: 0,
+      bridgeCost: 0,
+    });
+    const dimmableDriverQty = advancedControlTotals.driverQty;
+    const dimmableSmartKeypadQty = advancedControlTotals.smartControllerQty;
+    const dimmableBridgeQty = advancedControlTotals.bridgeQty;
     const moduleCost = totalModules * MODULE_PRICE_PER_UNIT;
     const switchingCost = totalSwitching * SWITCHING_PRICE_PER_UNIT;
-    const dimmableDriverCost = dimmableDriverQty * DRIVER_PWM_PRICE_PER_UNIT;
-    const dimmableSmartKeypadCost = dimmableSmartKeypadQty * WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT;
-    const dimmableBridgeCost = dimmableBridgeQty * WISE_PLAY_BRIDGE_PRICE_PER_UNIT;
-    const commissioningCost = dimmablePages.length > 0 ? COMMISSIONING_COST_PER_PROJECT : 0;
+    const dimmableDriverCost = advancedControlTotals.driverCost;
+    const dimmableSmartKeypadCost = advancedControlTotals.smartControllerCost;
+    const dimmableBridgeCost = advancedControlTotals.bridgeCost;
+    const commissioningCost = advancedPages.length > 0 ? COMMISSIONING_COST_PER_PROJECT : 0;
     const fabricCost = totalAreaSqm * 2170;
     const structureCost = structure === 'ทำ' ? totalAreaSqm * 5000 : 0;
     const installationCost = totalAreaSqm * 1670;
@@ -1936,11 +1990,12 @@ Use Chain-of-Thought reasoning to:
 
   const pricingByType = useMemo(() => {
     const areaDenominator = pricingSummary.totalAreaSqm > 0 ? pricingSummary.totalAreaSqm : 1;
-    const firstDimmablePageId = effectiveTemplatePages.find((p) => isDimmableControl(p.c))?.id || null;
+    const firstAdvancedPageId = effectiveTemplatePages.find((p) => isAdvancedControl(p.c))?.id || null;
 
     return effectiveTemplatePages.map((p, idx) => {
       const lightControl = p.c || '-';
-      const isDimmable = isDimmableControl(lightControl);
+      const advancedControlMode = getAdvancedControlMode(lightControl);
+      const isAdvanced = advancedControlMode !== null;
       const totalModulesPerType = Math.max(1, p.moduleCount) * p.q;
       const modulesPerLamp = Math.max(1, p.moduleCount || 1);
       const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
@@ -1948,16 +2003,16 @@ Use Chain-of-Thought reasoning to:
       const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       const switchingPerType = switchingPerLamp * p.q;
       const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
-      const driverPwmQtyPerLamp = isDimmable ? switchingPerLamp : 0;
+      const driverPwmQtyPerLamp = isAdvanced ? switchingPerLamp : 0;
       const driverPwmQtyPerType = driverPwmQtyPerLamp * p.q;
-      const driverPwmCostPerType = driverPwmQtyPerType * DRIVER_PWM_PRICE_PER_UNIT;
-      const wisePlaySmartKeypadQtyPerLamp = isDimmable ? 1 : 0;
+      const driverPwmCostPerType = driverPwmQtyPerType * getDriverUnitPriceByControlMode(advancedControlMode);
+      const wisePlaySmartKeypadQtyPerLamp = isAdvanced ? 1 : 0;
       const wisePlaySmartKeypadQtyPerType = wisePlaySmartKeypadQtyPerLamp * p.q;
-      const wisePlaySmartKeypadCostPerType = wisePlaySmartKeypadQtyPerType * WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT;
-      const wisePlayBridgeQtyPerLamp = isDimmable ? 1 : 0;
+      const wisePlaySmartKeypadCostPerType = wisePlaySmartKeypadQtyPerType * getSmartControllerUnitPriceByControlMode(advancedControlMode);
+      const wisePlayBridgeQtyPerLamp = isAdvanced ? 1 : 0;
       const wisePlayBridgeQtyPerType = wisePlayBridgeQtyPerLamp * p.q;
       const wisePlayBridgeCostPerType = wisePlayBridgeQtyPerType * WISE_PLAY_BRIDGE_PRICE_PER_UNIT;
-      const commissioningCostPerType = isDimmable && p.id === firstDimmablePageId ? COMMISSIONING_COST_PER_PROJECT : 0;
+      const commissioningCostPerType = isAdvanced && p.id === firstAdvancedPageId ? COMMISSIONING_COST_PER_PROJECT : 0;
       const areaPerLampRounded = roundUpToDecimalPlaces(Math.max(0, p.exactAreaSqm), 2);
       const totalAreaPerType = areaPerLampRounded * p.q;
       const areaRatio = totalAreaPerType / areaDenominator;
@@ -1975,7 +2030,7 @@ Use Chain-of-Thought reasoning to:
         index: idx + 1,
         name: p.name,
         lightControl,
-        isDimmable,
+        advancedControlMode,
         q: p.q,
         areaPerLampRounded,
         totalAreaPerType,
@@ -2024,6 +2079,7 @@ Use Chain-of-Thought reasoning to:
       return {
         typeName: item.name,
         lightControl: item.lightControl,
+        advancedControlMode: item.advancedControlMode,
         sizeMetersText: `${widthM.toFixed(2)} x ${heightM.toFixed(2)}`,
         areaPerLamp,
         qty: item.q,
@@ -2058,6 +2114,14 @@ Use Chain-of-Thought reasoning to:
     });
   }, [effectiveTemplatePages, pricingByType]);
 
+  const pricingAdvancedControlMode: AdvancedControlMode = pricingExportRows.some((row) => row.advancedControlMode === 'tunable')
+    ? 'tunable'
+    : pricingExportRows.some((row) => row.advancedControlMode === 'dimmable')
+      ? 'dimmable'
+      : null;
+  const advancedDriverCostLabel = `${getDriverLabelByControlMode(pricingAdvancedControlMode)} Cost (THB)`;
+  const advancedSmartControllerCostLabel = `${getSmartControllerLabelByControlMode(pricingAdvancedControlMode)} Cost (THB)`;
+
   const csvEscape = (value: string | number) => {
     const str = String(value ?? '');
     if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
@@ -2066,7 +2130,16 @@ Use Chain-of-Thought reasoning to:
 
   const buildPricingCsvText = useCallback(() => {
     const generatedAt = new Date().toLocaleString('th-TH');
-    const hasDimmableRows = pricingExportRows.some((row) => isDimmableControl(row.lightControl));
+    const hasAdvancedRows = pricingExportRows.some((row) => row.advancedControlMode !== null);
+    const advancedControlMode: AdvancedControlMode = pricingExportRows.some((row) => row.advancedControlMode === 'tunable')
+      ? 'tunable'
+      : pricingExportRows.some((row) => row.advancedControlMode === 'dimmable')
+        ? 'dimmable'
+        : null;
+    const driverControlLabel = getDriverLabelByControlMode(advancedControlMode);
+    const smartControllerLabel = getSmartControllerLabelByControlMode(advancedControlMode);
+    const driverUnitPrice = getDriverUnitPriceByControlMode(advancedControlMode);
+    const smartControllerUnitPrice = getSmartControllerUnitPriceByControlMode(advancedControlMode);
     const totals = pricingExportRows.reduce(
       (acc, row) => ({
         qty: acc.qty + row.qty,
@@ -2124,13 +2197,13 @@ Use Chain-of-Thought reasoning to:
       'จำนวน Switching/โคม',
       'จำนวน Switching/Type',
       'ราคา Switching รวม',
-      ...(hasDimmableRows ? [
-        'Driver PWM/โคม',
-        'Driver PWM/Type',
-        'Driver PWM/รวม',
-        'Wise Play 2 Smart Keypad/โคม',
-        'Wise Play 2 Smart Keypad/Type',
-        'Wise Play 2 Smart Keypad/รวม',
+      ...(hasAdvancedRows ? [
+        `${driverControlLabel}/โคม`,
+        `${driverControlLabel}/Type`,
+        `${driverControlLabel}/รวม`,
+        `${smartControllerLabel}/โคม`,
+        `${smartControllerLabel}/Type`,
+        `${smartControllerLabel}/รวม`,
         'Wise Play 2 Bridge/โคม',
         'Wise Play 2 Bridge/Type',
         'Wise Play 2 Bridge/รวม',
@@ -2172,7 +2245,7 @@ Use Chain-of-Thought reasoning to:
         item.switchingPricePerType.toFixed(2),
       ];
 
-      if (hasDimmableRows) {
+      if (hasAdvancedRows) {
         row.push(
           item.driverPwmQtyPerLamp,
           item.driverPwmQtyPerType,
@@ -2212,7 +2285,7 @@ Use Chain-of-Thought reasoning to:
       pricingSummary.switchingCost.toFixed(2),
     ];
 
-    if (hasDimmableRows) {
+    if (hasAdvancedRows) {
       totalRow.push(
         '-',
         pricingSummary.dimmableDriverQty,
@@ -2235,9 +2308,9 @@ Use Chain-of-Thought reasoning to:
     rows.push(['- รับประกันสินค้า 2 ปี']);
     rows.push(['- ราคาอาจปรับตามหน้างานจริง']);
     rows.push([`- ค่า Switching คิดที่ ${SWITCHING_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว (สามารถปรับได้)`]);
-    if (hasDimmableRows) {
-      rows.push([`- Driver PWM คิดราคา ${DRIVER_PWM_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนใช้สมการเดียวกับ Supply (หาร 120)`]);
-      rows.push([`- Wise Play 2 Smart Keypad คิดราคา ${WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
+    if (hasAdvancedRows) {
+      rows.push([`- ${driverControlLabel} คิดราคา ${driverUnitPrice.toFixed(2)} บาท/ตัว โดยจำนวนใช้สมการเดียวกับ Supply (หาร 120)`]);
+      rows.push([`- ${smartControllerLabel} คิดราคา ${smartControllerUnitPrice.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
       rows.push([`- Wise Play 2 Bridge คิดราคา ${WISE_PLAY_BRIDGE_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
       rows.push([`- Commissioning Cost คิด ${COMMISSIONING_COST_PER_PROJECT.toFixed(2)} บาท ต่อโครงการ (คิดครั้งเดียว)`]);
     }
@@ -2298,18 +2371,25 @@ Use Chain-of-Thought reasoning to:
       }
     );
 
-    const hasDimmableRows = pricingExportRows.some((row) => isDimmableControl(row.lightControl));
+    const hasAdvancedRows = pricingExportRows.some((row) => row.advancedControlMode !== null);
+    const advancedControlMode: AdvancedControlMode = pricingExportRows.some((row) => row.advancedControlMode === 'tunable')
+      ? 'tunable'
+      : pricingExportRows.some((row) => row.advancedControlMode === 'dimmable')
+        ? 'dimmable'
+        : null;
+    const driverControlLabel = getDriverLabelByControlMode(advancedControlMode);
+    const smartControllerLabel = getSmartControllerLabelByControlMode(advancedControlMode);
 
     const headers: string[] = [
       'Type', 'ขนาด (ม. x ม.)', 'พื้นที่ (ตร.ม.)', 'จำนวนโคม (pcs.)', 'พื้นที่รวม (ตร.ม.)', 'Vinyl translucent cost', 'Structure Cost (Wooden)', 'Installation LED Cost', 'Scaffold',
       'จำนวน module/โคม', 'จำนวน module รวม', 'ราคา module รวม/Type', 'Wattage รวม/โคม', 'Wattage รวม/Type', 'จำนวน Switching/โคม', 'จำนวน Switching/Type', 'ราคา Switching รวม',
-      ...(hasDimmableRows ? [
-        'Driver PWM/โคม',
-        'Driver PWM/Type',
-        'Driver PWM/รวม',
-        'Wise Play 2 Smart Keypad/โคม',
-        'Wise Play 2 Smart Keypad/Type',
-        'Wise Play 2 Smart Keypad/รวม',
+      ...(hasAdvancedRows ? [
+        `${driverControlLabel}/โคม`,
+        `${driverControlLabel}/Type`,
+        `${driverControlLabel}/รวม`,
+        `${smartControllerLabel}/โคม`,
+        `${smartControllerLabel}/Type`,
+        `${smartControllerLabel}/รวม`,
         'Wise Play 2 Bridge/โคม',
         'Wise Play 2 Bridge/Type',
         'Wise Play 2 Bridge/รวม',
@@ -2339,7 +2419,7 @@ Use Chain-of-Thought reasoning to:
         row.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
       ];
 
-      if (hasDimmableRows) {
+      if (hasAdvancedRows) {
         values.push(
           row.driverPwmQtyPerLamp.toLocaleString('th-TH'),
           row.driverPwmQtyPerType.toLocaleString('th-TH'),
@@ -2365,7 +2445,7 @@ Use Chain-of-Thought reasoning to:
       pricingSummary.switchingCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
     ];
 
-    if (hasDimmableRows) {
+    if (hasAdvancedRows) {
       totalRow.push(
         '-',
         pricingSummary.dimmableDriverQty.toLocaleString('th-TH'),
@@ -2391,7 +2471,7 @@ Use Chain-of-Thought reasoning to:
     const metaY = titleY + 34;
     const tableY = metaY + 34;
     const rowH = 62;
-    const baseColWidths = hasDimmableRows
+    const baseColWidths = hasAdvancedRows
       ? [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 170, 170, 210, 170, 170, 210, 170, 170, 210, 210, 250]
       : [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 250];
     const maxTableWidth = pagePxW - marginX * 2;
@@ -3428,6 +3508,11 @@ Use Chain-of-Thought reasoning to:
             <div className="flex flex-col gap-3 pt-2 md:flex-row md:justify-end">
               <button
                 onClick={() => {
+                  const password = window.prompt('กรอกรหัสเพื่อเปิดเครื่องมือวาดขั้นสูง');
+                  if ((password ?? '').trim() !== ADVANCED_DRAWING_PASSWORD) {
+                    alert('รหัสไม่ถูกต้อง หรือยังไม่ได้กรอกรหัส');
+                    return;
+                  }
                   const targetLampId = plannerLampId || formLamps[0]?.id || null;
                   setPlannerLampId(targetLampId);
                   setAppView('planner');
@@ -3435,20 +3520,6 @@ Use Chain-of-Thought reasoning to:
                 className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
               >
                 เปิดเครื่องมือวาดขั้นสูง
-              </button>
-              <button
-                onClick={generateTemplatePDF}
-                disabled={!isDataConfirmed || effectiveTemplatePages.length === 0 || isGeneratingPDF}
-                className="rounded border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-              >
-                {isGeneratingPDF ? 'กำลังสร้าง PDF...' : `ดาวน์โหลด Template PDF (${effectiveTemplatePages.length})`}
-              </button>
-              <button
-                onClick={downloadPricingPDF}
-                disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
-                className="rounded border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-              >
-                ดาวน์โหลดตารางคำนวณ (PDF)
               </button>
               <button
                 onClick={submitChecklistForm}
@@ -4254,14 +4325,14 @@ Use Chain-of-Thought reasoning to:
 
                     {pricingSummary.dimmableDriverCost > 0 && (
                       <>
-                        <div className="text-neutral-600">Driver PWM Cost (THB)</div>
+                        <div className="text-neutral-600">{advancedDriverCostLabel}</div>
                         <div className="text-right font-semibold text-neutral-900">{pricingSummary.dimmableDriverCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
                       </>
                     )}
 
                     {pricingSummary.dimmableSmartKeypadCost > 0 && (
                       <>
-                        <div className="text-neutral-600">Wise Play 2 Smart Keypad Cost (THB)</div>
+                        <div className="text-neutral-600">{advancedSmartControllerCostLabel}</div>
                         <div className="text-right font-semibold text-neutral-900">{pricingSummary.dimmableSmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</div>
                       </>
                     )}
