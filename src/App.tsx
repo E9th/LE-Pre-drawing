@@ -158,6 +158,21 @@ const getSmartControllerUnitPriceByControlMode = (mode: AdvancedControlMode): nu
   return mode === 'tunable' ? WISE_PLAY_SMART_REMOTE_RSS05_PRICE_PER_UNIT : WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT;
 };
 
+const getAdvancedBoqColumnLabels = (mode: AdvancedControlMode) => {
+  const driverLabel = getDriverLabelByControlMode(mode);
+  const smartControllerLabel = getSmartControllerLabelByControlMode(mode);
+  return {
+    driverQtyPerLamp: `จำนวน ${driverLabel}/โคม`,
+    driverQtyPerType: `จำนวน ${driverLabel}/Type`,
+    driverCostTotal: `ราคา ${driverLabel}/รวม`,
+    smartControllerQtyPerLamp: mode === 'dimmable'
+      ? 'จำนวน DWise Play 2 Smart Keypad/โคม'
+      : `จำนวน ${smartControllerLabel}/โคม`,
+    smartControllerQtyPerType: `จำนวน ${smartControllerLabel}/Type`,
+    smartControllerCostTotal: `ราคา ${smartControllerLabel}/รวม`,
+  };
+};
+
 const roundUpToInteger = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   return Math.ceil(value);
@@ -2140,6 +2155,7 @@ Use Chain-of-Thought reasoning to:
     const smartControllerLabel = getSmartControllerLabelByControlMode(advancedControlMode);
     const driverUnitPrice = getDriverUnitPriceByControlMode(advancedControlMode);
     const smartControllerUnitPrice = getSmartControllerUnitPriceByControlMode(advancedControlMode);
+    const advancedColumnLabels = getAdvancedBoqColumnLabels(advancedControlMode);
     const totals = pricingExportRows.reduce(
       (acc, row) => ({
         qty: acc.qty + row.qty,
@@ -2198,15 +2214,15 @@ Use Chain-of-Thought reasoning to:
       'จำนวน Switching/Type',
       'ราคา Switching รวม',
       ...(hasAdvancedRows ? [
-        `${driverControlLabel}/โคม`,
-        `${driverControlLabel}/Type`,
-        `${driverControlLabel}/รวม`,
-        `${smartControllerLabel}/โคม`,
-        `${smartControllerLabel}/Type`,
-        `${smartControllerLabel}/รวม`,
-        'Wise Play 2 Bridge/โคม',
-        'Wise Play 2 Bridge/Type',
-        'Wise Play 2 Bridge/รวม',
+        advancedColumnLabels.driverQtyPerLamp,
+        advancedColumnLabels.driverQtyPerType,
+        advancedColumnLabels.driverCostTotal,
+        advancedColumnLabels.smartControllerQtyPerLamp,
+        advancedColumnLabels.smartControllerQtyPerType,
+        advancedColumnLabels.smartControllerCostTotal,
+        'จำนวน Wise Play 2 Bridge/โคม',
+        'จำนวน Wise Play 2 Bridge/Type',
+        'ราคา Wise Play 2 Bridge/รวม',
         'Commissioning Cost',
       ] : []),
       'Price/Type',
@@ -2379,20 +2395,21 @@ Use Chain-of-Thought reasoning to:
         : null;
     const driverControlLabel = getDriverLabelByControlMode(advancedControlMode);
     const smartControllerLabel = getSmartControllerLabelByControlMode(advancedControlMode);
+    const advancedColumnLabels = getAdvancedBoqColumnLabels(advancedControlMode);
 
     const headers: string[] = [
       'Type', 'ขนาด (ม. x ม.)', 'พื้นที่ (ตร.ม.)', 'จำนวนโคม (pcs.)', 'พื้นที่รวม (ตร.ม.)', 'Vinyl translucent cost', 'Structure Cost (Wooden)', 'Installation LED Cost', 'Scaffold',
       'จำนวน module/โคม', 'จำนวน module รวม', 'ราคา module รวม/Type', 'Wattage รวม/โคม', 'Wattage รวม/Type', 'จำนวน Switching/โคม', 'จำนวน Switching/Type', 'ราคา Switching รวม',
       ...(hasAdvancedRows ? [
-        `${driverControlLabel}/โคม`,
-        `${driverControlLabel}/Type`,
-        `${driverControlLabel}/รวม`,
-        `${smartControllerLabel}/โคม`,
-        `${smartControllerLabel}/Type`,
-        `${smartControllerLabel}/รวม`,
-        'Wise Play 2 Bridge/โคม',
-        'Wise Play 2 Bridge/Type',
-        'Wise Play 2 Bridge/รวม',
+        advancedColumnLabels.driverQtyPerLamp,
+        advancedColumnLabels.driverQtyPerType,
+        advancedColumnLabels.driverCostTotal,
+        advancedColumnLabels.smartControllerQtyPerLamp,
+        advancedColumnLabels.smartControllerQtyPerType,
+        advancedColumnLabels.smartControllerCostTotal,
+        'จำนวน Wise Play 2 Bridge/โคม',
+        'จำนวน Wise Play 2 Bridge/Type',
+        'ราคา Wise Play 2 Bridge/รวม',
         'Commissioning Cost',
       ] : []),
       'Price/Type',
@@ -2474,9 +2491,14 @@ Use Chain-of-Thought reasoning to:
     const baseColWidths = hasAdvancedRows
       ? [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 170, 170, 210, 170, 170, 210, 170, 170, 210, 210, 250]
       : [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 250];
+    const contentFittedColWidths = baseColWidths.map((baseWidth, idx) => {
+      const headerText = String(headers[idx] || '');
+      const estimatedHeaderWidth = Math.ceil(headerText.length * 11);
+      return Math.max(baseWidth, estimatedHeaderWidth);
+    });
     const maxTableWidth = pagePxW - marginX * 2;
-    const widthScale = Math.min(1, maxTableWidth / baseColWidths.reduce((sum, w) => sum + w, 0));
-    const colWidths = baseColWidths.map((w) => Math.floor(w * widthScale));
+    const widthScale = Math.min(1, maxTableWidth / contentFittedColWidths.reduce((sum, w) => sum + w, 0));
+    const colWidths = contentFittedColWidths.map((w) => Math.floor(w * widthScale));
     const rowsPerPage = Math.max(1, Math.floor((pagePxH - tableY - 80) / rowH) - 1);
 
     const noteLines = [
@@ -2526,6 +2548,14 @@ Use Chain-of-Thought reasoning to:
       return wrapByChars(line, 115);
     });
 
+    const wrapHeaderText = (text: string, colWidth: number, compact: boolean): string[] => {
+      const normalized = String(text || '').replace(/\//g, '/ ').trim();
+      if (!normalized) return [''];
+      const fontSize = compact ? 11 : hasAdvancedRows ? 13 : 16;
+      const maxChars = Math.max(4, Math.floor((colWidth - 12) / (fontSize * 0.62)));
+      return wrapByChars(normalized, maxChars).slice(0, 3);
+    };
+
     const renderTablePageSvg = (
       rowsChunk: Array<Array<string | number>>,
       pageNo: number,
@@ -2536,9 +2566,11 @@ Use Chain-of-Thought reasoning to:
       const includeNotes = options?.includeNotes ?? false;
       const titleFont = compact ? 22 : 26;
       const textFont = compact ? 16 : 20;
-      const headFont = compact ? 14 : 18;
-      const rowHeight = compact ? 48 : rowH;
-      const textBaseline = compact ? 31 : 38;
+      const headFont = compact ? 11 : hasAdvancedRows ? 13 : 18;
+      const rowHeight = compact ? 56 : rowH;
+      const textBaseline = compact ? 34 : 38;
+      const headerLineHeight = compact ? 13 : hasAdvancedRows ? 15 : 18;
+      const headerTop = compact ? 14 : 16;
 
       const lines: string[] = [];
       const push = (line: string) => lines.push(line);
@@ -2559,7 +2591,11 @@ Use Chain-of-Thought reasoning to:
       headers.forEach((header, idx) => {
         const w = colWidths[idx];
         push(`<rect x="${x}" y="${y}" width="${w}" height="${rowHeight}" fill="#e5edf6" stroke="#9ca3af"/>`);
-        push(`<text x="${x + 8}" y="${y + textBaseline}" class="head">${escapeSvgText(String(header))}</text>`);
+        const headerLines = wrapHeaderText(String(header), w, compact);
+        headerLines.forEach((line, lineIdx) => {
+          const yPos = y + headerTop + (lineIdx * headerLineHeight);
+          push(`<text x="${x + 8}" y="${yPos}" class="head">${escapeSvgText(line)}</text>`);
+        });
         x += w;
       });
 
