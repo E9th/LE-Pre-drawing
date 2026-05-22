@@ -36,6 +36,14 @@ interface FormLampItem {
   file: File | null;
 }
 
+type BoqRowKind = 'header-top' | 'header-sub' | 'size' | 'area' | 'item' | 'section-total' | 'section-summary' | 'spacer' | 'grand-total';
+
+interface BoqRow {
+  kind: BoqRowKind;
+  cells: Array<string | number | null>;
+  qtyDecimals?: number;
+}
+
 // Higher render resolution for crisper user-downloaded PDFs.
 const TEMPLATE_DOWNLOAD_WIDTH = 4200;
 const TEMPLATE_DOWNLOAD_HEIGHT = 2968;
@@ -122,6 +130,7 @@ const WISE_PLAY_BRIDGE_PRICE_PER_UNIT = 1600;
 const COMMISSIONING_COST_PER_PROJECT = 5000;
 const MODULE_PRICE_PER_UNIT = 24;
 const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
+const BOQ_TITLE = 'Bill Of Quantities Stretch Ceiling';
 const ADVANCED_DRAWING_PASSWORD = 'kp_anakin';
 
 const isDimmableControl = (lightControl: LightControlType | string): boolean => {
@@ -2143,376 +2152,276 @@ Use Chain-of-Thought reasoning to:
     return str;
   };
 
-  const buildPricingCsvText = useCallback(() => {
-    const generatedAt = new Date().toLocaleString('th-TH');
-    const hasAdvancedRows = pricingExportRows.some((row) => row.advancedControlMode !== null);
-    const advancedControlMode: AdvancedControlMode = pricingExportRows.some((row) => row.advancedControlMode === 'tunable')
-      ? 'tunable'
-      : pricingExportRows.some((row) => row.advancedControlMode === 'dimmable')
-        ? 'dimmable'
-        : null;
-    const driverControlLabel = getDriverLabelByControlMode(advancedControlMode);
-    const smartControllerLabel = getSmartControllerLabelByControlMode(advancedControlMode);
-    const driverUnitPrice = getDriverUnitPriceByControlMode(advancedControlMode);
-    const smartControllerUnitPrice = getSmartControllerUnitPriceByControlMode(advancedControlMode);
-    const advancedColumnLabels = getAdvancedBoqColumnLabels(advancedControlMode);
-    const totals = pricingExportRows.reduce(
-      (acc, row) => ({
-        qty: acc.qty + row.qty,
-        totalAreaPerType: acc.totalAreaPerType + row.totalAreaPerType,
-        vinylCost: acc.vinylCost + row.vinylCost,
-        structureCost: acc.structureCost + row.structureCost,
-        installationCost: acc.installationCost + row.installationCost,
-        scaffoldCost: acc.scaffoldCost + row.scaffoldCost,
-        totalModules: acc.totalModules + row.totalModules,
-        modulePricePerType: acc.modulePricePerType + row.modulePricePerType,
-        ledWattPerType: acc.ledWattPerType + row.ledWattPerType,
-        switchingPerType: acc.switchingPerType + row.switchingPerType,
-        switchingPricePerType: acc.switchingPricePerType + row.switchingPricePerType,
-        driverPwmCost: acc.driverPwmCost + row.driverPwmCost,
-        wisePlaySmartKeypadCost: acc.wisePlaySmartKeypadCost + row.wisePlaySmartKeypadCost,
-        wisePlayBridgeCost: acc.wisePlayBridgeCost + row.wisePlayBridgeCost,
-        commissioningCost: acc.commissioningCost + row.commissioningCost,
-        summaryPricePerType: acc.summaryPricePerType + row.summaryPricePerType,
-      }),
-      {
-        qty: 0,
-        totalAreaPerType: 0,
-        vinylCost: 0,
-        structureCost: 0,
-        installationCost: 0,
-        scaffoldCost: 0,
-        totalModules: 0,
-        modulePricePerType: 0,
-        ledWattPerType: 0,
-        switchingPerType: 0,
-        switchingPricePerType: 0,
-        driverPwmCost: 0,
-        wisePlaySmartKeypadCost: 0,
-        wisePlayBridgeCost: 0,
-        commissioningCost: 0,
-        summaryPricePerType: 0,
-      }
+  const buildBoqTableData = useCallback(() => {
+    const projectName = docDetails.projectName || '-';
+    const dateText = docDetails.date || new Date().toLocaleDateString('th-TH');
+    const revisionText = docDetails.status || docDetails.projectNumber || '-';
+    const controlSet = new Set(
+      pricingExportRows
+        .map((row) => String(row.lightControl || '').trim())
+        .filter((value) => value && value !== '-')
     );
+    const controlText = controlSet.size === 0
+      ? '-'
+      : controlSet.size === 1
+        ? Array.from(controlSet)[0]
+        : 'Mixed';
+    const structureUnitRate = structure === 'ทำ' ? 5000 : 0;
 
-    const headers: Array<string> = [
-      'Type',
-      'ขนาด (ม. x ม.)',
-      'พื้นที่ (ตร.ม.)',
-      'จำนวนโคม (pcs.)',
-      'พื้นที่รวม (ตร.ม.)',
-      'Vinyl translucent cost',
-      'Structure Cost (Wooden)',
-      'Installation LED Cost',
-      'Scaffold',
-      'จำนวน module/โคม',
-      'จำนวน module รวม',
-      'ราคา module รวม/Type',
-      'Wattage รวม/โคม',
-      'Wattage รวม/Type',
-      'จำนวน Switching/โคม',
-      'จำนวน Switching/Type',
-      'ราคา Switching รวม',
-      ...(hasAdvancedRows ? [
-        advancedColumnLabels.driverQtyPerLamp,
-        advancedColumnLabels.driverQtyPerType,
-        advancedColumnLabels.driverCostTotal,
-        advancedColumnLabels.smartControllerQtyPerLamp,
-        advancedColumnLabels.smartControllerQtyPerType,
-        advancedColumnLabels.smartControllerCostTotal,
-        'จำนวน Wise Play 2 Bridge/โคม',
-        'จำนวน Wise Play 2 Bridge/Type',
-        'ราคา Wise Play 2 Bridge/รวม',
-        'Commissioning Cost',
-      ] : []),
-      'Price/Type',
+    const headerTop: BoqRow = {
+      kind: 'header-top',
+      cells: [
+        'Type',
+        'Description',
+        'Unit',
+        'Qty.',
+        'Cost',
+        '',
+        'SPL',
+        '',
+        'Total Amount',
+        '',
+        'Wattage of LED\n/โคม',
+        'Wattage of LED \n/ รวม',
+      ],
+    };
+    const headerSub: BoqRow = {
+      kind: 'header-sub',
+      cells: ['', '', '', '', 'Unit Rate', 'Total', 'Unit Rate', 'Total', '', '', '', ''],
+    };
+
+    const noteLines = [
+      'Please note that : ',
+      ' - เข้าทำงาน ปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์',
+      ' - รับประกันสินค้า 2 ปี',
+      ' - ภายในระยะเวลารับประกัน มีการ Service บำรุงรักษา ทำความสะอาด และ ซ่อมแซมอุปกรณ์ 1 ครั้ง กรณีต่างจังหวัดจะมีค่าใช้จ่ายในการเดินทางเพิ่มเติม',
+      ' - ราคานี้ไม่รวมค่าเดินทาง ค่าที่พัก (กรณีหน้างานไม่ได้อยู่ในกทม.และปริมณฑล) ค่าทำงานในเวลากลางคืน และค่านั่งร้าน โดยหากหน้างานมีความสูง 3 เมตรขึ้นไป หน้างานจะต้องเตรียมนั่งร้านไว้รอทีม Stretch Ceiling ',
+      ' -ราคาและจำนวนอุปกรณ์ อาจมีการเปลี่ยนแปลงหลังจากสำรวจหน้างานจริง',
+      ' -ราคาอาจมีการเปลี่ยนแปลงหลังสำรวจหน้างาน',
     ];
 
-    const rows: Array<Array<string | number>> = [
-      ['L&E Costing Sheet (Preliminary)'],
-      ['Generated At', generatedAt],
-      ['Project Name', docDetails.projectName || '-'],
-      ['Project Number', docDetails.projectNumber || '-'],
-      ['Location', docDetails.location || '-'],
-      ['AO / Team', aoName || '-'],
-      ['Structure', structure || '-'],
-      [],
-      headers,
-    ];
+    const rows: BoqRow[] = [headerTop, headerSub];
+    let grandTotal = 0;
 
-    pricingExportRows.forEach((item) => {
-      const row: Array<string | number> = [
-        item.typeName,
-        item.sizeMetersText,
-        item.areaPerLamp.toFixed(2),
-        item.qty,
-        item.totalAreaPerType.toFixed(2),
-        item.vinylCost.toFixed(2),
-        item.structureCost.toFixed(2),
-        item.installationCost.toFixed(2),
-        item.scaffoldCost.toFixed(2),
-        item.modulesPerLamp,
-        item.totalModules,
-        item.modulePricePerType.toFixed(2),
-        item.ledWattPerLamp.toFixed(0),
-        item.ledWattPerType.toFixed(0),
-        item.switchingPerLamp,
-        item.switchingPerType,
-        item.switchingPricePerType.toFixed(2),
+    const buildCostRow = (
+      description: string,
+      unit: string,
+      qty: number,
+      unitRate: number,
+      qtyDecimals = 0,
+    ): BoqRow => {
+      const safeQty = Number.isFinite(qty) ? qty : 0;
+      const safeUnitRate = Number.isFinite(unitRate) ? unitRate : 0;
+      const costTotal = safeQty * safeUnitRate;
+      const splUnitRate = safeUnitRate > 0 ? safeUnitRate / 0.7 : 0;
+      const splTotal = safeQty * splUnitRate;
+      return {
+        kind: 'item',
+        qtyDecimals,
+        cells: [
+          '',
+          description,
+          unit,
+          safeQty,
+          safeUnitRate,
+          costTotal,
+          splUnitRate,
+          splTotal,
+          splTotal,
+          '',
+          '',
+          '',
+        ],
+      };
+    };
+
+    pricingExportRows.forEach((item, idx) => {
+      const qty = Number.isFinite(item.qty) ? Math.max(0, Math.round(item.qty)) : 0;
+      const areaPerLamp = Number.isFinite(item.areaPerLamp) ? Math.max(0, item.areaPerLamp) : 0;
+      const modulesPerLamp = Number.isFinite(item.modulesPerLamp) ? Math.max(1, Math.round(item.modulesPerLamp)) : 1;
+      const wattPerLamp = modulesPerLamp * LED_MODULE_WATT;
+      const wattTotal = wattPerLamp * qty;
+      const isAdvanced = item.advancedControlMode !== null;
+      const driverUnitRate = isAdvanced ? getDriverUnitPriceByControlMode(item.advancedControlMode) : 0;
+      const smartUnitRate = isAdvanced ? getSmartControllerUnitPriceByControlMode(item.advancedControlMode) : 0;
+      const driverQtyPerLamp = isAdvanced ? item.driverPwmQtyPerLamp : 0;
+      const smartQtyPerLamp = isAdvanced ? item.wisePlaySmartKeypadQtyPerLamp : 0;
+      const bridgeQtyPerLamp = isAdvanced ? item.wisePlayBridgeQtyPerLamp : 0;
+      const driverDescription = item.advancedControlMode === 'tunable'
+        ? 'Driver DT8 CCT'
+        : 'Driver PWM SR-2303P 4 in 1';
+      const smartDescription = item.advancedControlMode === 'tunable'
+        ? 'Wise Play2 Smart Remote RSS05'
+        : 'L&E Wise Play2/ Smart Keypad/ RSS03/ White/ 4-key/ CR2430';
+      const sizeLabel = item.sizeMetersText
+        ? `Size\n(${item.sizeMetersText} m.)`
+        : 'Size';
+
+      rows.push({
+        kind: 'size',
+        qtyDecimals: 0,
+        cells: [
+          item.typeName,
+          sizeLabel,
+          'Pcs.',
+          qty,
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          '',
+          wattPerLamp,
+          wattTotal,
+        ],
+      });
+      rows.push({
+        kind: 'area',
+        qtyDecimals: 2,
+        cells: ['', 'Area', 'Sq.m.', areaPerLamp, '-', '-', '-', '-', '-', '', '', ''],
+      });
+
+      const costRows: BoqRow[] = [
+        buildCostRow('Vinyl Translucent Cost', 'Sq.m.', areaPerLamp, 2170, 2),
+        buildCostRow('Structure Cost', 'Sq.m.', areaPerLamp, structureUnitRate, 2),
+        buildCostRow('Installation Cost', 'Sq.m.', areaPerLamp, 1670, 2),
+        buildCostRow('LED Module SLM04 1.44W 8xx Spacing 15x15 cm.', 'Pcs.', modulesPerLamp, MODULE_PRICE_PER_UNIT, 0),
+        buildCostRow('Switching Power Supply LRS-150-12', 'Pcs.', item.switchingPerLamp, SWITCHING_PRICE_PER_UNIT, 0),
+        buildCostRow(driverDescription, 'Pcs.', driverQtyPerLamp, driverUnitRate, 0),
+        buildCostRow('Wise Play2/ Bridge DALI(50mA) + 0/1-10V(20mA) + Relay(5A)', 'Pc.', bridgeQtyPerLamp, WISE_PLAY_BRIDGE_PRICE_PER_UNIT, 0),
+        buildCostRow(smartDescription, 'Pc.', smartQtyPerLamp, smartUnitRate, 0),
       ];
 
-      if (hasAdvancedRows) {
-        row.push(
-          item.driverPwmQtyPerLamp,
-          item.driverPwmQtyPerType,
-          item.driverPwmCost.toFixed(2),
-          item.wisePlaySmartKeypadQtyPerLamp,
-          item.wisePlaySmartKeypadQtyPerType,
-          item.wisePlaySmartKeypadCost.toFixed(2),
-          item.wisePlayBridgeQtyPerLamp,
-          item.wisePlayBridgeQtyPerType,
-          item.wisePlayBridgeCost.toFixed(2),
-          item.commissioningCost.toFixed(2),
-        );
-      }
+      costRows.forEach((row) => rows.push(row));
 
-      row.push(item.summaryPricePerType.toFixed(2));
-      rows.push(row);
+      const totalPerLamp = costRows.reduce((sum, row) => {
+        const value = row.cells[8];
+        return sum + (typeof value === 'number' ? value : 0);
+      }, 0);
+      const summaryTotal = totalPerLamp * qty;
+      grandTotal += summaryTotal;
+
+      rows.push({
+        kind: 'section-total',
+        cells: [`Total Price ${item.typeName} / Pc.`, '', '', '', '', '', '', '', totalPerLamp, '', '', ''],
+      });
+      rows.push({
+        kind: 'section-summary',
+        cells: [`Summary ${item.typeName}`, '', '', '', '', '', '', '', summaryTotal, '', '', ''],
+      });
+
+      rows.push({ kind: 'spacer', cells: Array(12).fill('') });
     });
 
-    rows.push([]);
-    const totalRow: Array<string | number> = [
-      'Totally',
-      '-',
-      '-',
-      totals.qty,
-      pricingSummary.totalAreaSqm.toFixed(2),
-      pricingSummary.fabricCost.toFixed(2),
-      pricingSummary.structureCost.toFixed(2),
-      pricingSummary.installationCost.toFixed(2),
-      pricingSummary.scaffoldCost.toFixed(2),
-      '-',
-      pricingSummary.totalModules,
-      pricingSummary.moduleCost.toFixed(2),
-      '-',
-      totals.ledWattPerType.toFixed(0),
-      '-',
-      pricingSummary.totalSwitching,
-      pricingSummary.switchingCost.toFixed(2),
-    ];
+    rows.push({
+      kind: 'grand-total',
+      cells: ['Total Price', '', '', '', '', '', '', '', grandTotal, '', '', ''],
+    });
 
-    if (hasAdvancedRows) {
-      totalRow.push(
-        '-',
-        pricingSummary.dimmableDriverQty,
-        pricingSummary.dimmableDriverCost.toFixed(2),
-        '-',
-        pricingSummary.dimmableSmartKeypadQty,
-        pricingSummary.dimmableSmartKeypadCost.toFixed(2),
-        '-',
-        pricingSummary.dimmableBridgeQty,
-        pricingSummary.dimmableBridgeCost.toFixed(2),
-        pricingSummary.commissioningCost.toFixed(2),
-      );
-    }
-
-    totalRow.push(pricingSummary.estimatedPrice.toFixed(2));
-    rows.push(totalRow);
-    rows.push([]);
-    rows.push(['Please note that:']);
-    rows.push(['- เข้าทำงานปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์']);
-    rows.push(['- รับประกันสินค้า 2 ปี']);
-    rows.push(['- ราคาอาจปรับตามหน้างานจริง']);
-    rows.push([`- ค่า Switching คิดที่ ${SWITCHING_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว (สามารถปรับได้)`]);
-    if (hasAdvancedRows) {
-      rows.push([`- ${driverControlLabel} คิดราคา ${driverUnitPrice.toFixed(2)} บาท/ตัว โดยจำนวนใช้สมการเดียวกับ Supply (หาร 120)`]);
-      rows.push([`- ${smartControllerLabel} คิดราคา ${smartControllerUnitPrice.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
-      rows.push([`- Wise Play 2 Bridge คิดราคา ${WISE_PLAY_BRIDGE_PRICE_PER_UNIT.toFixed(2)} บาท/ตัว โดยจำนวนอ้างอิงจำนวนโคมต่อ Type`]);
-      rows.push([`- Commissioning Cost คิด ${COMMISSIONING_COST_PER_PROJECT.toFixed(2)} บาท ต่อโครงการ (คิดครั้งเดียว)`]);
-    }
-
-    return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+    return {
+      title: BOQ_TITLE,
+      projectName,
+      dateText,
+      controlText,
+      revisionText,
+      rows,
+      noteLines,
+    };
   }, [
+    docDetails.date,
     docDetails.projectName,
     docDetails.projectNumber,
-    docDetails.location,
-    aoName,
-    structure,
+    docDetails.status,
     pricingExportRows,
-    pricingSummary,
+    structure,
   ]);
 
-  const downloadPricingPDF = async () => {
-    if (effectiveTemplatePages.length === 0) {
-      alert('ยังไม่มีรายการสำหรับสร้างตารางคำนวณ');
-      return;
-    }
-
-    const totals = pricingExportRows.reduce(
-      (acc, row) => ({
-        qty: acc.qty + row.qty,
-        totalAreaPerType: acc.totalAreaPerType + row.totalAreaPerType,
-        vinylCost: acc.vinylCost + row.vinylCost,
-        structureCost: acc.structureCost + row.structureCost,
-        installationCost: acc.installationCost + row.installationCost,
-        scaffoldCost: acc.scaffoldCost + row.scaffoldCost,
-        totalModules: acc.totalModules + row.totalModules,
-        modulePricePerType: acc.modulePricePerType + row.modulePricePerType,
-        ledWattPerType: acc.ledWattPerType + row.ledWattPerType,
-        switchingPerType: acc.switchingPerType + row.switchingPerType,
-        switchingPricePerType: acc.switchingPricePerType + row.switchingPricePerType,
-        driverPwmCost: acc.driverPwmCost + row.driverPwmCost,
-        wisePlaySmartKeypadCost: acc.wisePlaySmartKeypadCost + row.wisePlaySmartKeypadCost,
-        wisePlayBridgeCost: acc.wisePlayBridgeCost + row.wisePlayBridgeCost,
-        commissioningCost: acc.commissioningCost + row.commissioningCost,
-        summaryPricePerType: acc.summaryPricePerType + row.summaryPricePerType,
-      }),
-      {
-        qty: 0,
-        totalAreaPerType: 0,
-        vinylCost: 0,
-        structureCost: 0,
-        installationCost: 0,
-        scaffoldCost: 0,
-        totalModules: 0,
-        modulePricePerType: 0,
-        ledWattPerType: 0,
-        switchingPerType: 0,
-        switchingPricePerType: 0,
-        driverPwmCost: 0,
-        wisePlaySmartKeypadCost: 0,
-        wisePlayBridgeCost: 0,
-        commissioningCost: 0,
-        summaryPricePerType: 0,
-      }
-    );
-
-    const hasAdvancedRows = pricingExportRows.some((row) => row.advancedControlMode !== null);
-    const advancedControlMode: AdvancedControlMode = pricingExportRows.some((row) => row.advancedControlMode === 'tunable')
-      ? 'tunable'
-      : pricingExportRows.some((row) => row.advancedControlMode === 'dimmable')
-        ? 'dimmable'
-        : null;
-    const driverControlLabel = getDriverLabelByControlMode(advancedControlMode);
-    const smartControllerLabel = getSmartControllerLabelByControlMode(advancedControlMode);
-    const advancedColumnLabels = getAdvancedBoqColumnLabels(advancedControlMode);
-
-    const headers: string[] = [
-      'Type', 'ขนาด (ม. x ม.)', 'พื้นที่ (ตร.ม.)', 'จำนวนโคม (pcs.)', 'พื้นที่รวม (ตร.ม.)', 'Vinyl translucent cost', 'Structure Cost (Wooden)', 'Installation LED Cost', 'Scaffold',
-      'จำนวน module/โคม', 'จำนวน module รวม', 'ราคา module รวม/Type', 'Wattage รวม/โคม', 'Wattage รวม/Type', 'จำนวน Switching/โคม', 'จำนวน Switching/Type', 'ราคา Switching รวม',
-      ...(hasAdvancedRows ? [
-        advancedColumnLabels.driverQtyPerLamp,
-        advancedColumnLabels.driverQtyPerType,
-        advancedColumnLabels.driverCostTotal,
-        advancedColumnLabels.smartControllerQtyPerLamp,
-        advancedColumnLabels.smartControllerQtyPerType,
-        advancedColumnLabels.smartControllerCostTotal,
-        'จำนวน Wise Play 2 Bridge/โคม',
-        'จำนวน Wise Play 2 Bridge/Type',
-        'ราคา Wise Play 2 Bridge/รวม',
-        'Commissioning Cost',
-      ] : []),
-      'Price/Type',
+  const buildPricingCsvText = useCallback(() => {
+    const { title, projectName, dateText, controlText, revisionText, rows, noteLines } = buildBoqTableData();
+    const emptyRow = Array(12).fill('');
+    const csvRows: Array<Array<string | number | null>> = [
+      [title, ...emptyRow.slice(1)],
+      emptyRow,
+      ['PROJECT : ', projectName, '', '', '', '', 'Date :', dateText, '', '', '', ''],
+      ['Control   :', controlText, '', '', '', '', 'Revision :', revisionText, '', '', '', ''],
+      emptyRow,
+      ...rows.map((row) => row.cells),
+      emptyRow,
+      ...noteLines.map((line) => [line, ...emptyRow.slice(1)]),
     ];
 
-    const bodyRows = pricingExportRows.map((row) => {
-      const values: Array<string | number> = [
-        row.typeName,
-        row.sizeMetersText,
-        row.areaPerLamp.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        row.qty.toLocaleString('th-TH'),
-        row.totalAreaPerType.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        row.vinylCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.modulesPerLamp.toLocaleString('th-TH'),
-        row.totalModules.toLocaleString('th-TH'),
-        row.modulePricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.ledWattPerLamp.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        row.switchingPerLamp.toLocaleString('th-TH'),
-        row.switchingPerType.toLocaleString('th-TH'),
-        row.switchingPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-      ];
+    const formatCsvValue = (row: BoqRow | null, colIndex: number, value: string | number | null): string => {
+      if (value === null || value === '') return '';
+      if (value === '-') return '-';
+      if (typeof value !== 'number') return String(value);
 
-      if (hasAdvancedRows) {
-        values.push(
-          row.driverPwmQtyPerLamp.toLocaleString('th-TH'),
-          row.driverPwmQtyPerType.toLocaleString('th-TH'),
-          row.driverPwmCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-          row.wisePlaySmartKeypadQtyPerLamp.toLocaleString('th-TH'),
-          row.wisePlaySmartKeypadQtyPerType.toLocaleString('th-TH'),
-          row.wisePlaySmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-          row.wisePlayBridgeQtyPerLamp.toLocaleString('th-TH'),
-          row.wisePlayBridgeQtyPerType.toLocaleString('th-TH'),
-          row.wisePlayBridgeCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-          row.commissioningCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        );
+      if (colIndex === 3) {
+        const decimals = row?.qtyDecimals ?? 0;
+        return value.toFixed(decimals);
       }
+      if (colIndex >= 4 && colIndex <= 8) {
+        return value.toFixed(2);
+      }
+      if (colIndex >= 10 && colIndex <= 11) {
+        return value.toFixed(2);
+      }
+      return value.toFixed(0);
+    };
 
-      values.push(row.summaryPricePerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }));
-      return values;
+    const normalizedRows = csvRows.map((row, rowIndex) => {
+      const rowMeta = rowIndex >= 5 && rowIndex < 5 + rows.length ? rows[rowIndex - 5] : null;
+      return row.map((cell, colIndex) => formatCsvValue(rowMeta, colIndex, cell));
     });
 
-    const totalRow: Array<string | number> = [
-      'Totally', '-', '-', totals.qty.toLocaleString('th-TH'), pricingSummary.totalAreaSqm.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), pricingSummary.fabricCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-      pricingSummary.structureCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.installationCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), pricingSummary.scaffoldCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', pricingSummary.totalModules.toLocaleString('th-TH'),
-      pricingSummary.moduleCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', totals.ledWattPerType.toLocaleString('th-TH', { maximumFractionDigits: 0 }), '-', pricingSummary.totalSwitching.toLocaleString('th-TH'),
-      pricingSummary.switchingCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-    ];
+    return normalizedRows.map((row) => row.map(csvEscape).join(',')).join('\n');
+  }, [buildBoqTableData, csvEscape]);
 
-    if (hasAdvancedRows) {
-      totalRow.push(
-        '-',
-        pricingSummary.dimmableDriverQty.toLocaleString('th-TH'),
-        pricingSummary.dimmableDriverCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        '-',
-        pricingSummary.dimmableSmartKeypadQty.toLocaleString('th-TH'),
-        pricingSummary.dimmableSmartKeypadCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        '-',
-        pricingSummary.dimmableBridgeQty.toLocaleString('th-TH'),
-        pricingSummary.dimmableBridgeCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-        pricingSummary.commissioningCost.toLocaleString('th-TH', { maximumFractionDigits: 0 }),
-      );
+  const downloadPricingPDF = async (forUpload = false): Promise<jsPDF | null> => {
+    if (effectiveTemplatePages.length === 0) {
+      if (!forUpload) {
+        alert('ยังไม่มีรายการสำหรับสร้างตารางคำนวณ');
+      }
+      return null;
     }
 
-    totalRow.push(pricingSummary.estimatedPrice.toLocaleString('th-TH', { maximumFractionDigits: 0 }));
-    bodyRows.push(totalRow);
+    const { title, projectName, dateText, controlText, revisionText, rows, noteLines } = buildBoqTableData();
+    const headerRows = rows.slice(0, 2);
+    const bodyRows = rows.slice(2);
 
     const pagePxW = 4200;
     const pagePxH = 2970;
-    const marginX = 36;
-    const marginY = 24;
-    const titleY = marginY + 26;
-    const metaY = titleY + 34;
-    const tableY = metaY + 34;
-    const rowH = 62;
-    const baseColWidths = hasAdvancedRows
-      ? [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 170, 170, 210, 170, 170, 210, 170, 170, 210, 210, 250]
-      : [350, 350, 220, 170, 220, 210, 210, 190, 190, 180, 180, 210, 170, 170, 170, 170, 210, 250];
-    const contentFittedColWidths = baseColWidths.map((baseWidth, idx) => {
-      const headerText = String(headers[idx] || '');
-      const estimatedHeaderWidth = Math.ceil(headerText.length * 11);
-      return Math.max(baseWidth, estimatedHeaderWidth);
-    });
+    const marginX = 48;
+    const marginY = 28;
+    const titleY = marginY + 30;
+    const metaY = titleY + 32;
+    const metaLineGap = 26;
+    const tableY = metaY + 44;
+    const headerRowHeight = 56;
+    const rowHeight = 44;
+
+    const boqExcelColumnWidths = [12.58, 87.58, 7.75, 8.43, 13, 13.16, 8.43, 8.43, 15.16, 8.43, 19.08, 18.75];
     const maxTableWidth = pagePxW - marginX * 2;
-    const widthScale = Math.min(1, maxTableWidth / contentFittedColWidths.reduce((sum, w) => sum + w, 0));
-    const colWidths = contentFittedColWidths.map((w) => Math.floor(w * widthScale));
-    const rowsPerPage = Math.max(1, Math.floor((pagePxH - tableY - 80) / rowH) - 1);
+    const totalExcelWeight = boqExcelColumnWidths.reduce((sum, width) => sum + width, 0);
+    const widthUnitPx = maxTableWidth / totalExcelWeight;
+    const colWidths = boqExcelColumnWidths.map((weight) => Math.max(48, Math.floor(weight * widthUnitPx)));
+    const widthRemainder = maxTableWidth - colWidths.reduce((sum, width) => sum + width, 0);
+    if (widthRemainder !== 0 && colWidths.length > 0) {
+      colWidths[colWidths.length - 1] += widthRemainder;
+    }
+    const colX = colWidths.reduce<number[]>((acc, width, idx) => {
+      if (idx === 0) return [marginX];
+      acc.push(acc[idx - 1] + colWidths[idx - 1]);
+      return acc;
+    }, []);
+    const titleCenterX = colX[0] + (colWidths.slice(0, 9).reduce((sum, w) => sum + w, 0) / 2);
+    const metaRightX = colX[6];
 
-    const noteLines = [
-      'Please note that :',
-      '',
-      '- เข้าทำงาน ปกติ 8.00 - 17.00 น. วันจันทร์ - ศุกร์',
-      '- รับประกันสินค้า 2 ปี',
-      '- ภายในระยะเวลารับประกัน มีการ Service บำรุงรักษา ทำความสะอาด และ ซ่อมแซมอุปกรณ์ 1 ครั้ง กรณีต่างจังหวัดจะมีค่าใช้จ่ายในการเดินทางเพิ่มเติม',
-      '- ราคานี้ไม่รวมค่าเดินทาง ค่าที่พัก (กรณีหน้างานไม่ได้อยู่ในกทม.และปริมณฑล) ค่าทำงานในเวลากลางคืน และค่านั่งร้าน โดยหากหน้างานมีความสูง 3 เมตรขึ้นไป หน้างานจะต้องเตรียมนั่งร้านไว้รอทีม stretch ceiling',
-      '- ราคา Summary price/type เป็นราคารวมจำนวนโคมทุกตัว ในแต่ละ type',
-      '- ราคาอาจมีการเปลี่ยนแปลงหลังจากสำรวจหน้างานจริง',
-    ];
-
-    const meta = `Project: ${docDetails.projectName || '-'}   Location: ${docDetails.location || '-'}   Generated: ${new Date().toLocaleString('th-TH')}`;
+    const headerHeight = headerRowHeight * headerRows.length;
+    const renderWidth = forUpload ? 2400 : TEMPLATE_DOWNLOAD_WIDTH;
+    const renderHeight = forUpload ? 1697 : TEMPLATE_DOWNLOAD_HEIGHT;
+    const footerPadding = 160;
+    const availableBodyHeight = pagePxH - tableY - headerHeight - footerPadding;
+    const rowsPerPage = Math.max(1, Math.floor(availableBodyHeight / rowHeight));
 
     const wrapByChars = (text: string, maxChars: number): string[] => {
       const source = String(text || '').trim();
@@ -2542,87 +2451,150 @@ Use Chain-of-Thought reasoning to:
       return lines;
     };
 
-    const noteWrappedLines = noteLines.flatMap((line, idx) => {
-      if (!line.trim()) return [''];
-      if (idx === 0) return [line];
-      return wrapByChars(line, 115);
-    });
+    const formatNumber = (value: number, decimals: number): string =>
+      value.toLocaleString('th-TH', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
-    const wrapHeaderText = (text: string, colWidth: number, compact: boolean): string[] => {
-      const normalized = String(text || '').replace(/\//g, '/ ').trim();
-      if (!normalized) return [''];
-      const fontSize = compact ? 11 : hasAdvancedRows ? 13 : 16;
-      const maxChars = Math.max(4, Math.floor((colWidth - 12) / (fontSize * 0.62)));
-      return wrapByChars(normalized, maxChars).slice(0, 3);
+    const formatDisplayValue = (row: BoqRow | null, colIndex: number, value: string | number | null): string => {
+      if (value === null || value === '') return '';
+      if (value === '-') return '-';
+      if (typeof value !== 'number') return String(value);
+      if (colIndex === 3) {
+        const decimals = row?.qtyDecimals ?? 0;
+        return formatNumber(value, decimals);
+      }
+      if (colIndex >= 4 && colIndex <= 8) {
+        return formatNumber(value, 2);
+      }
+      if (colIndex >= 10 && colIndex <= 11) {
+        return formatNumber(value, 2);
+      }
+      return formatNumber(value, 0);
     };
 
+    const buildMergeRanges = (pageRows: BoqRow[]) => {
+      const ranges: Array<{ row: number; col: number; rowSpan: number; colSpan: number }> = [
+        { row: 0, col: 0, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 1, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 2, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 3, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 4, rowSpan: 1, colSpan: 2 },
+        { row: 0, col: 6, rowSpan: 1, colSpan: 2 },
+        { row: 0, col: 8, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 10, rowSpan: 2, colSpan: 1 },
+        { row: 0, col: 11, rowSpan: 2, colSpan: 1 },
+      ];
+      pageRows.forEach((row, idx) => {
+        if (row.kind === 'section-total' || row.kind === 'section-summary' || row.kind === 'grand-total') {
+          ranges.push({ row: idx, col: 0, rowSpan: 1, colSpan: 8 });
+        }
+      });
+      return ranges;
+    };
+
+    const getMergeForCell = (
+      ranges: Array<{ row: number; col: number; rowSpan: number; colSpan: number }>,
+      rowIndex: number,
+      colIndex: number,
+    ) => ranges.find(
+      (range) =>
+        rowIndex >= range.row &&
+        rowIndex < range.row + range.rowSpan &&
+        colIndex >= range.col &&
+        colIndex < range.col + range.colSpan
+    );
+
     const renderTablePageSvg = (
-      rowsChunk: Array<Array<string | number>>,
+      pageRows: BoqRow[],
       pageNo: number,
       totalPages: number,
-      options?: { compact?: boolean; includeNotes?: boolean }
+      noteWrappedLines: string[]
     ): string => {
-      const compact = options?.compact ?? false;
-      const includeNotes = options?.includeNotes ?? false;
-      const titleFont = compact ? 22 : 26;
-      const textFont = compact ? 16 : 20;
-      const headFont = compact ? 11 : hasAdvancedRows ? 13 : 18;
-      const rowHeight = compact ? 56 : rowH;
-      const textBaseline = compact ? 34 : 38;
-      const headerLineHeight = compact ? 13 : hasAdvancedRows ? 15 : 18;
-      const headerTop = compact ? 14 : 16;
+      const rowHeights = pageRows.map((row) => (row.kind === 'header-top' || row.kind === 'header-sub') ? headerRowHeight : rowHeight);
+      const rowY = rowHeights.reduce<number[]>((acc, height, idx) => {
+        if (idx === 0) return [tableY];
+        acc.push(acc[idx - 1] + rowHeights[idx - 1]);
+        return acc;
+      }, []);
+      const merges = buildMergeRanges(pageRows);
 
       const lines: string[] = [];
       const push = (line: string) => lines.push(line);
 
       push(`<svg width="${pagePxW}" height="${pagePxH}" viewBox="0 0 ${pagePxW} ${pagePxH}" xmlns="http://www.w3.org/2000/svg">`);
       push('<rect width="100%" height="100%" fill="white"/>');
-      push(`<style>.th{font:700 ${titleFont}px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.td{font:400 ${textFont}px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.head{font:700 ${headFont}px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}</style>`);
+      push('<style>.title{font:700 28px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.meta{font:400 18px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.head{font:700 16px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.cell{font:400 16px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.total{font:700 16px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.note{font:400 20px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.note-head{font:700 20px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}</style>');
 
-      push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
-      push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
-      push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
-      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.22} ${pagePxH * 0.30})"><text x="${pagePxW * 0.22}" y="${pagePxH * 0.30}" text-anchor="middle" class="th" style="font-size:${compact ? 92 : 112}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
-      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:${compact ? 100 : 124}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
-      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.78} ${pagePxH * 0.70})"><text x="${pagePxW * 0.78}" y="${pagePxH * 0.70}" text-anchor="middle" class="th" style="font-size:${compact ? 92 : 112}px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<text x="${titleCenterX}" y="${titleY}" text-anchor="middle" class="title">${escapeSvgText(title)}</text>`);
+      push(`<text x="${pagePxW - marginX}" y="${titleY}" text-anchor="end" class="meta">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
+      push(`<text x="${marginX}" y="${metaY}" class="meta">${escapeSvgText(`PROJECT : ${projectName}`)}</text>`);
+      push(`<text x="${metaRightX}" y="${metaY}" class="meta">${escapeSvgText(`Date : ${dateText}`)}</text>`);
+      push(`<text x="${marginX}" y="${metaY + metaLineGap}" class="meta">${escapeSvgText(`Control   : ${controlText}`)}</text>`);
+      push(`<text x="${metaRightX}" y="${metaY + metaLineGap}" class="meta">${escapeSvgText(`Revision : ${revisionText}`)}</text>`);
 
-      let y = tableY;
-      let x = marginX;
-      headers.forEach((header, idx) => {
-        const w = colWidths[idx];
-        push(`<rect x="${x}" y="${y}" width="${w}" height="${rowHeight}" fill="#e5edf6" stroke="#9ca3af"/>`);
-        const headerLines = wrapHeaderText(String(header), w, compact);
-        headerLines.forEach((line, lineIdx) => {
-          const yPos = y + headerTop + (lineIdx * headerLineHeight);
-          push(`<text x="${x + 8}" y="${yPos}" class="head">${escapeSvgText(line)}</text>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.22} ${pagePxH * 0.30})"><text x="${pagePxW * 0.22}" y="${pagePxH * 0.30}" text-anchor="middle" class="title" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="title" style="font-size:124px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.78} ${pagePxH * 0.70})"><text x="${pagePxW * 0.78}" y="${pagePxH * 0.70}" text-anchor="middle" class="title" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+
+      pageRows.forEach((row, rowIdx) => {
+        const y = rowY[rowIdx];
+        row.cells.forEach((cell, colIdx) => {
+          const merge = getMergeForCell(merges, rowIdx, colIdx);
+          if (merge && (merge.row !== rowIdx || merge.col !== colIdx)) return;
+
+          const spanCols = merge ? merge.colSpan : 1;
+          const spanRows = merge ? merge.rowSpan : 1;
+          const cellX = colX[colIdx];
+          const cellWidth = colWidths.slice(colIdx, colIdx + spanCols).reduce((sum, w) => sum + w, 0);
+          const cellHeight = rowHeights.slice(rowIdx, rowIdx + spanRows).reduce((sum, h) => sum + h, 0);
+
+          const fill = row.kind === 'header-top'
+            ? '#e5edf6'
+            : row.kind === 'header-sub'
+              ? '#f1f5f9'
+              : row.kind === 'section-total' || row.kind === 'section-summary' || row.kind === 'grand-total'
+                ? '#f8fafc'
+                : 'white';
+          const stroke = row.kind === 'header-top' || row.kind === 'header-sub' ? '#9ca3af' : '#c4c4c4';
+
+          push(`<rect x="${cellX}" y="${y}" width="${cellWidth}" height="${cellHeight}" fill="${fill}" stroke="${stroke}"/>`);
+
+          const displayValue = formatDisplayValue(row, colIdx, cell);
+          if (!displayValue) return;
+          const isNumeric = typeof cell === 'number';
+          const isHeader = row.kind === 'header-top' || row.kind === 'header-sub';
+          const isTotal = row.kind === 'section-total' || row.kind === 'section-summary' || row.kind === 'grand-total';
+          const fontSize = isHeader ? 16 : 16;
+          const lineHeight = isHeader ? 18 : 18;
+          const maxLines = isHeader || colIdx === 1 ? 2 : 1;
+          const maxChars = Math.max(4, Math.floor((cellWidth - 12) / (fontSize * 0.6)));
+          const lines = displayValue.split('\n').flatMap((segment) => wrapByChars(segment, maxChars)).slice(0, maxLines);
+          const totalTextHeight = lines.length * lineHeight;
+          const startY = y + (cellHeight - totalTextHeight) / 2 + lineHeight - 4;
+          const padding = 8;
+          const align = isHeader ? 'center' : isNumeric ? 'right' : 'left';
+          const textX = align === 'center'
+            ? cellX + cellWidth / 2
+            : align === 'right'
+              ? cellX + cellWidth - padding
+              : cellX + padding;
+          const textAnchor = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start';
+          const cls = isHeader ? 'head' : isTotal ? 'total' : 'cell';
+
+          lines.forEach((line, idx) => {
+            const lineY = startY + idx * lineHeight;
+            push(`<text x="${textX}" y="${lineY}" text-anchor="${textAnchor}" class="${cls}">${escapeSvgText(line)}</text>`);
+          });
         });
-        x += w;
       });
 
-      rowsChunk.forEach((row, rowIdx) => {
-        const rowY = tableY + rowHeight * (rowIdx + 1);
-        let rowX = marginX;
-        row.forEach((cell, colIdx) => {
-          const w = colWidths[colIdx];
-          const value = String(cell);
-          const isNumeric = /^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^-?\d+(?:\.\d+)?$/.test(value);
-          push(`<rect x="${rowX}" y="${rowY}" width="${w}" height="${rowHeight}" fill="white" stroke="#c4c4c4"/>`);
-          if (isNumeric) {
-            push(`<text x="${rowX + w - 8}" y="${rowY + textBaseline}" text-anchor="end" class="td">${escapeSvgText(value)}</text>`);
-          } else {
-            push(`<text x="${rowX + 8}" y="${rowY + textBaseline}" class="td">${escapeSvgText(value)}</text>`);
-          }
-          rowX += w;
-        });
-      });
-
-      if (includeNotes) {
-        const noteStartY = tableY + rowHeight * (rowsChunk.length + 1) + 34;
-        const noteStep = compact ? 38 : 52;
+      if (noteWrappedLines.length > 0) {
+        const tableHeight = rowHeights.reduce((sum, h) => sum + h, 0);
+        const noteStartY = tableY + tableHeight + 36;
+        const noteLineHeight = 32;
         noteWrappedLines.forEach((line, idx) => {
           if (!line.trim()) return;
-          const yPos = noteStartY + idx * noteStep;
-          const cls = idx === 0 ? 'th' : 'td';
+          const cls = idx === 0 ? 'note-head' : 'note';
+          const yPos = noteStartY + idx * noteLineHeight;
           push(`<text x="${marginX}" y="${yPos}" class="${cls}">${escapeSvgText(line)}</text>`);
         });
       }
@@ -2631,26 +2603,30 @@ Use Chain-of-Thought reasoning to:
       return lines.join('');
     };
 
-    const renderNotePageSvg = (pageNo: number, totalPages: number): string => {
+    const renderNotePageSvg = (pageNo: number, totalPages: number, noteWrappedLines: string[]): string => {
       const lines: string[] = [];
       const push = (line: string) => lines.push(line);
       const noteStartY = 320;
-      const lineStep = 72;
+      const lineStep = 48;
 
       push(`<svg width="${pagePxW}" height="${pagePxH}" viewBox="0 0 ${pagePxW} ${pagePxH}" xmlns="http://www.w3.org/2000/svg">`);
       push('<rect width="100%" height="100%" fill="white"/>');
-      push('<style>.th{font:700 32px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}.td{font:400 28px \"Noto Sans Thai\",\"Tahoma\",sans-serif;fill:#111}</style>');
-      push(`<text x="${marginX}" y="${titleY}" class="th">${escapeSvgText('L&E Costing Sheet (Preliminary)')}</text>`);
-      push(`<text x="${marginX}" y="${metaY}" class="td">${escapeSvgText(meta)}</text>`);
-      push(`<text x="${pagePxW - marginX}" y="${metaY}" text-anchor="end" class="td">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
-      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.22} ${pagePxH * 0.30})"><text x="${pagePxW * 0.22}" y="${pagePxH * 0.30}" text-anchor="middle" class="th" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
-      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="th" style="font-size:124px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
-      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.78} ${pagePxH * 0.70})"><text x="${pagePxW * 0.78}" y="${pagePxH * 0.70}" text-anchor="middle" class="th" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push('<style>.title{font:700 28px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.meta{font:400 18px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.note{font:400 20px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}.note-head{font:700 20px "Noto Sans Thai","Tahoma",sans-serif;fill:#111}</style>');
+      push(`<text x="${titleCenterX}" y="${titleY}" text-anchor="middle" class="title">${escapeSvgText(title)}</text>`);
+      push(`<text x="${pagePxW - marginX}" y="${titleY}" text-anchor="end" class="meta">${escapeSvgText(`Page ${pageNo}/${totalPages}`)}</text>`);
+      push(`<text x="${marginX}" y="${metaY}" class="meta">${escapeSvgText(`PROJECT : ${projectName}`)}</text>`);
+      push(`<text x="${metaRightX}" y="${metaY}" class="meta">${escapeSvgText(`Date : ${dateText}`)}</text>`);
+      push(`<text x="${marginX}" y="${metaY + metaLineGap}" class="meta">${escapeSvgText(`Control   : ${controlText}`)}</text>`);
+      push(`<text x="${metaRightX}" y="${metaY + metaLineGap}" class="meta">${escapeSvgText(`Revision : ${revisionText}`)}</text>`);
+
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.22} ${pagePxH * 0.30})"><text x="${pagePxW * 0.22}" y="${pagePxH * 0.30}" text-anchor="middle" class="title" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW / 2} ${pagePxH / 2})"><text x="${pagePxW / 2}" y="${pagePxH / 2}" text-anchor="middle" class="title" style="font-size:124px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
+      push(`<g opacity="0.12" transform="rotate(-24 ${pagePxW * 0.78} ${pagePxH * 0.70})"><text x="${pagePxW * 0.78}" y="${pagePxH * 0.70}" text-anchor="middle" class="title" style="font-size:112px">${escapeSvgText(BOQ_WATERMARK_TEXT)}</text></g>`);
 
       noteWrappedLines.forEach((line, idx) => {
         const y = noteStartY + idx * lineStep;
-        if (line.trim() === '') return;
-        const cls = idx === 0 ? 'th' : 'td';
+        if (!line.trim()) return;
+        const cls = idx === 0 ? 'note-head' : 'note';
         push(`<text x="${marginX}" y="${y}" class="${cls}">${escapeSvgText(line)}</text>`);
       });
 
@@ -2658,50 +2634,70 @@ Use Chain-of-Thought reasoning to:
       return lines.join('');
     };
 
-    const compactRowH = 48;
-    const compactNoteStep = 38;
-    const singlePageRequiredHeight = tableY + compactRowH * (bodyRows.length + 1) + 34 + noteWrappedLines.length * compactNoteStep + 40;
-    const canFitSinglePage = singlePageRequiredHeight <= pagePxH;
+    const maxNoteChars = Math.max(10, Math.floor((maxTableWidth - 20) / (20 * 0.6)));
+    const noteWrappedLines = noteLines.flatMap((line, idx) => {
+      if (!line.trim()) return [''];
+      if (idx === 0) return [line];
+      return wrapByChars(line, maxNoteChars);
+    });
+
+    const rowChunks: BoqRow[][] = [];
+    for (let i = 0; i < bodyRows.length; i += rowsPerPage) {
+      rowChunks.push(bodyRows.slice(i, i + rowsPerPage));
+    }
+    const lastChunk = rowChunks[rowChunks.length - 1] || [];
+    const lastTableHeight = headerHeight + lastChunk.length * rowHeight;
+    const notesHeight = noteWrappedLines.length * 32 + 20;
+    const canFitNotesOnLastPage = tableY + lastTableHeight + 36 + notesHeight <= pagePxH - marginY;
+    const totalPages = rowChunks.length + (canFitNotesOnLastPage ? 0 : 1);
 
     try {
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-
-      if (canFitSinglePage) {
-        const onePage = await svgToPng(
-          renderTablePageSvg(bodyRows, 1, 1, { compact: true, includeNotes: true }),
-          TEMPLATE_DOWNLOAD_WIDTH,
-          TEMPLATE_DOWNLOAD_HEIGHT
-        );
-        pdf.addImage(onePage, 'PNG', 0, 0, 420, 297);
-      } else {
-        const rowChunks: Array<Array<Array<string | number>>> = [];
-        for (let i = 0; i < bodyRows.length; i += rowsPerPage) {
-          rowChunks.push(bodyRows.slice(i, i + rowsPerPage));
-        }
-        const totalPages = rowChunks.length + 1;
-
-        const tableImages = await Promise.all(
-          rowChunks.map((chunk, idx) => svgToPng(renderTablePageSvg(chunk, idx + 1, totalPages), TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT))
-        );
-        const noteImage = await svgToPng(renderNotePageSvg(totalPages, totalPages), TEMPLATE_DOWNLOAD_WIDTH, TEMPLATE_DOWNLOAD_HEIGHT);
-
-        if (tableImages.length > 0) {
-          pdf.addImage(tableImages[0], 'PNG', 0, 0, 420, 297);
-          for (let i = 1; i < tableImages.length; i++) {
-            pdf.addPage('a3', 'landscape');
-            pdf.addImage(tableImages[i], 'PNG', 0, 0, 420, 297);
-          }
+      for (let i = 0; i < rowChunks.length; i++) {
+        const pageRows = [...headerRows, ...rowChunks[i]];
+        const includeNotes = canFitNotesOnLastPage && i === rowChunks.length - 1;
+        const svg = renderTablePageSvg(pageRows, i + 1, totalPages, includeNotes ? noteWrappedLines : []);
+        const pageImage = await svgToPng(svg, renderWidth, renderHeight);
+        if (i === 0) {
+          pdf.addImage(pageImage, 'PNG', 0, 0, 420, 297);
+        } else {
           pdf.addPage('a3', 'landscape');
+          pdf.addImage(pageImage, 'PNG', 0, 0, 420, 297);
         }
+      }
+
+      if (!canFitNotesOnLastPage) {
+        const noteSvg = renderNotePageSvg(totalPages, totalPages, noteWrappedLines);
+        const noteImage = await svgToPng(noteSvg, renderWidth, renderHeight);
+        pdf.addPage('a3', 'landscape');
         pdf.addImage(noteImage, 'PNG', 0, 0, 420, 297);
       }
 
-      pdf.save(`${docDetails.projectName || 'pricing'}_Pricing_Report.pdf`);
+      if (forUpload) {
+        return pdf;
+      }
+
+      pdf.save(`${docDetails.projectName || 'BOQ'}_BOQ.pdf`);
+      return null;
     } catch (error) {
-      console.error('Failed to export pricing PDF:', error);
+      console.error('Failed to export BOQ PDF:', error);
+      if (forUpload) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       alert(`ไม่สามารถสร้างไฟล์ PDF ได้: ${message}`);
+      return null;
     }
+  };
+
+  const pdfToPayloadFile = (pdf: jsPDF, fallbackName: string): { mimeType: string; data: string; name: string } => {
+    const pdfDataUri = pdf.output('datauristring');
+    const pdfBase64 = pdfDataUri.includes(',') ? pdfDataUri.split(',')[1] : pdfDataUri;
+    return {
+      mimeType: 'application/pdf',
+      data: pdfBase64,
+      name: fallbackName,
+    };
   };
 
   const renderTemplatePdf = async (targetPages: PageData[], exportWidth: number, exportHeight: number) => {
@@ -2760,12 +2756,24 @@ Use Chain-of-Thought reasoning to:
     setSubmitProgressText('กำลังสร้าง Drawing PDF สำหรับส่งไปยังระบบ...');
     try {
       const pdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
-      const pdfDataUri = pdf.output('datauristring');
-      const pdfBase64 = pdfDataUri.includes(',') ? pdfDataUri.split(',')[1] : pdfDataUri;
-      const approxPdfSizeMB = (pdfBase64.length * 0.75) / (1024 * 1024);
+      const templateFilePayload = pdfToPayloadFile(pdf, 'Drawing.pdf');
+      const approxPdfSizeMB = (templateFilePayload.data.length * 0.75) / (1024 * 1024);
 
       if (approxPdfSizeMB > 8) {
         alert(`⚠️ ไฟล์ PDF มีขนาดประมาณ ${approxPdfSizeMB.toFixed(1)} MB ซึ่งอาจเกินข้อจำกัดของ Google Apps Script และส่งไม่สำเร็จ (413)`);
+      }
+
+      setSubmitProgressText('กำลังสร้าง BOQ PDF สำหรับส่งไปยังระบบ...');
+      const pricingPdf = await downloadPricingPDF(true);
+      const pricingPdfFilePayload = pricingPdf
+        ? pdfToPayloadFile(pricingPdf, `${docDetails.projectName || 'BOQ'}_BOQ.pdf`)
+        : null;
+
+      if (pricingPdfFilePayload) {
+        const approxPricingPdfSizeMB = (pricingPdfFilePayload.data.length * 0.75) / (1024 * 1024);
+        if (approxPricingPdfSizeMB > 8) {
+          alert(`⚠️ ไฟล์ BOQ PDF มีขนาดประมาณ ${approxPricingPdfSizeMB.toFixed(1)} MB ซึ่งอาจเกินข้อจำกัดของ Google Apps Script และส่งไม่สำเร็จ (413)`);
+        }
       }
 
       // เตรียมข้อมูลยิง API
@@ -2774,7 +2782,8 @@ Use Chain-of-Thought reasoning to:
         projectName: docDetails.projectName,
         location: docDetails.location,
         structure: structure,
-        templateFile: { mimeType: "application/pdf", data: pdfBase64, name: "Drawing.pdf" },
+        templateFile: templateFilePayload,
+        pricingPdfFile: pricingPdfFilePayload,
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -2806,7 +2815,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycby0zawMuMNWZWO8lLP6JYElY6IUMwO6JzTPUa3ABgTIlBMzdtmdi-ZqRmY_64zjBQwUJg/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbzq7eGt0YetZoNazIKbqzxRqiArYNbCPQ8sZ8SPzZ6iOgHcHo9CtNyU3PMwzCRh3F2Ckw/exec";
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
@@ -3050,23 +3059,15 @@ Use Chain-of-Thought reasoning to:
     setIsSubmittingChecklist(true);
   setSubmitProgressText('กำลังสร้าง Drawing PDF สำหรับส่งข้อมูล...');
     try {
-      let templatePdfBase64: string | null = null;
       let templateFilePayload: { mimeType: string; data: string; name: string } | null = null;
       let csvFilePayload: { mimeType: string; data: string; name: string } | null = null;
+      let pricingPdfFilePayload: { mimeType: string; data: string; name: string } | null = null;
       if (effectiveTemplatePages.length > 0) {
         const templatePdf = await renderTemplatePdf(effectiveTemplatePages, TEMPLATE_API_WIDTH, TEMPLATE_API_HEIGHT);
-        const templatePdfDataUri = templatePdf.output('datauristring');
-        templatePdfBase64 = templatePdfDataUri.includes(',') ? templatePdfDataUri.split(',')[1] : templatePdfDataUri;
-        if (templatePdfBase64) {
-          templateFilePayload = {
-            mimeType: 'application/pdf',
-            data: templatePdfBase64,
-            name: `${docDetails.projectName || 'template'}_Drawing.pdf`,
-          };
-        }
+        templateFilePayload = pdfToPayloadFile(templatePdf, `${docDetails.projectName || 'template'}_Drawing.pdf`);
       }
 
-      setSubmitProgressText('กำลังเตรียมตารางราคาและไฟล์ CSV...');
+      setSubmitProgressText('กำลังเตรียม BOQ และไฟล์ CSV...');
       const csvText = buildPricingCsvText();
       // Add UTF-8 BOM so Microsoft Excel detects Thai text encoding correctly.
       const csvTextWithBom = '\uFEFF' + csvText;
@@ -3078,8 +3079,14 @@ Use Chain-of-Thought reasoning to:
       csvFilePayload = {
         mimeType: 'text/csv;charset=utf-8',
         data: window.btoa(csvBinary),
-        name: `${docDetails.projectName || 'pricing'}_Pricing_Report.csv`,
+        name: `${docDetails.projectName || 'BOQ'}_BOQ.csv`,
       };
+
+      setSubmitProgressText('กำลังสร้างไฟล์ BOQ PDF...');
+      const pricingPdf = await downloadPricingPDF(true);
+      if (pricingPdf) {
+        pricingPdfFilePayload = pdfToPayloadFile(pricingPdf, `${docDetails.projectName || 'BOQ'}_BOQ.pdf`);
+      }
 
       const pageById = new Map<string, PageData>(effectiveTemplatePages.map((p) => [p.id, p]));
 
@@ -3128,6 +3135,7 @@ Use Chain-of-Thought reasoning to:
         structure,
         templateFile: templateFilePayload,
         csvFile: csvFilePayload,
+        pricingPdfFile: pricingPdfFilePayload,
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -3151,7 +3159,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycby0zawMuMNWZWO8lLP6JYElY6IUMwO6JzTPUa3ABgTIlBMzdtmdi-ZqRmY_64zjBQwUJg/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbzq7eGt0YetZoNazIKbqzxRqiArYNbCPQ8sZ8SPzZ6iOgHcHo9CtNyU3PMwzCRh3F2Ckw/exec';
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');
@@ -4447,7 +4455,7 @@ Use Chain-of-Thought reasoning to:
                   disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
                   className="px-4 py-2 text-sm font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded disabled:opacity-50"
                 >
-                  Download Calculation PDF
+                  Download BOQ PDF
                 </button>
                 <button 
                   onClick={generateTemplatePDF} 

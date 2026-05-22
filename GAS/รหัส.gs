@@ -147,7 +147,9 @@ function doPost(e) {
       "ไฟล์ Template",
       "สถานะไฟล์ Template",
       "ไฟล์ CSV",
-      "สถานะไฟล์ CSV"
+      "สถานะไฟล์ CSV",
+      "ไฟล์ BOQ PDF",
+      "สถานะไฟล์ BOQ PDF"
     ]);
     var lampsSheet = getOrCreateSheet_(ss, "รายละเอียดแต่ละโคม", [
       "วันเวลา",
@@ -212,7 +214,13 @@ function doPost(e) {
     var csvUpload = uploadBase64File_(
       folder,
       data.csvFile,
-      (data.projectName || "pricing") + "_Pricing_Report.csv"
+      (data.projectName || "BOQ") + "_BOQ.csv"
+    );
+
+    var pricingPdfUpload = uploadBase64File_(
+      folder,
+      data.pricingPdfFile,
+      (data.projectName || "BOQ") + "_BOQ.pdf"
     );
 
     filesSheet.appendRow([
@@ -232,7 +240,7 @@ function doPost(e) {
     filesSheet.appendRow([
       timestamp,
       submissionId,
-      "Pricing CSV",
+      "BOQ CSV",
       "",
       "",
       csvUpload.fileName,
@@ -241,6 +249,20 @@ function doPost(e) {
       csvUpload.status,
       csvUpload.url,
       csvUpload.error
+    ]);
+
+    filesSheet.appendRow([
+      timestamp,
+      submissionId,
+      "BOQ PDF",
+      "",
+      "",
+      pricingPdfUpload.fileName,
+      pricingPdfUpload.mimeType,
+      pricingPdfUpload.sizeBytes,
+      pricingPdfUpload.status,
+      pricingPdfUpload.url,
+      pricingPdfUpload.error
     ]);
 
     for (var i = 0; i < lamps.length; i++) {
@@ -382,7 +404,9 @@ function doPost(e) {
       templateUpload.url,
       templateUpload.status,
       csvUpload.url,
-      csvUpload.status
+      csvUpload.status,
+      pricingPdfUpload.url,
+      pricingPdfUpload.status
     ]);
 
     var formattedPrice = estimatedPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" });
@@ -399,7 +423,8 @@ function doPost(e) {
       "📍 สถานที่: " + (data.location || "-") + "\n" +
       "🏗️ โครงสร้างส่วนกลาง: " + (data.structure || "-") + "\n" +
       "📄 Template Drawing: " + templateUpload.url + "\n" +
-      "🧾 Pricing CSV: " + csvUpload.url + "\n" +
+      "🧾 BOQ CSV: " + csvUpload.url + "\n" +
+      "📑 BOQ PDF: " + pricingPdfUpload.url + "\n" +
       "────────────────\n" +
       "📌 สรุปรวม\n" +
       "• พื้นที่รวม: " + formattedArea + " ตร.ม.\n" +
