@@ -315,10 +315,29 @@ export default function App() {
   React.useEffect(() => {
     if ((modW === 44 && modH === 38) || (modW === 38 && modH === 44)) {
       setModuleName('SLM04');
+    } else if ((modW === 93 && modH === 32) || (modW === 32 && modH === 93)) {
+      setModuleName('SLM08');
     } else {
       setModuleName(`${modW}x${modH}`);
     }
   }, [modW, modH]);
+
+  React.useEffect(() => {
+    const isRgbwSelected = lampLight === 'RGBW' || lampControl === 'RGBW';
+    if (!isRgbwSelected) return;
+
+    if (lampLight !== 'RGBW') {
+      setLampLight('RGBW');
+    }
+    if (lampControl !== 'RGBW') {
+      setLampControl('RGBW');
+    }
+    if (modW !== 93) setModW(93);
+    if (modH !== 32) setModH(32);
+    if (spaceX !== 150) setSpaceX(150);
+    if (spaceY !== 150) setSpaceY(150);
+    if (layoutType !== 'grid') setLayoutType('grid');
+  }, [lampLight, lampControl, modW, modH, spaceX, spaceY, layoutType]);
 
   React.useEffect(() => {
     if (formLamps.length === 0) {
@@ -1248,6 +1267,15 @@ Use Chain-of-Thought reasoning to:
   }, [lampD]);
 
   React.useEffect(() => {
+    if (lampLight === 'RGBW' && lampControl !== 'RGBW') {
+      setLampControl('RGBW');
+      return;
+    }
+    if (lampControl === 'RGBW' && lampLight !== 'RGBW') {
+      setLampLight('RGBW');
+      return;
+    }
+
     setFormLamps((prev) => {
       let changed = false;
       const next = prev.map((lamp) => {

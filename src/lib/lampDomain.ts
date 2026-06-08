@@ -1,7 +1,7 @@
 export type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'semicircle' | 'u-shape' | 'c-shape' | 't-shape' | 'hollow-rect' | 'hexagon' | 'octagon' | 'custom' | 'polygon' | 'text';
 export type LayoutType = 'grid' | 'staggered';
 export type AppView = 'form' | 'planner';
-export type LightControlType = '-' | 'On-Off' | 'Dimmable' | 'Tunable White';
+export type LightControlType = '-' | 'On-Off' | 'Dimmable' | 'Tunable White' | 'RGBW';
 export type AdvancedControlMode = 'dimmable' | 'tunable' | null;
 
 export interface Point { x: number; y: number; }
@@ -90,6 +90,7 @@ export const LIGHT_CONTROL_OPTIONS: Array<{ value: LightControlType; label: stri
   { value: 'On-Off', label: 'เปิด-ปิด(On-Off)' },
   { value: 'Dimmable', label: 'สามารถหรี่แสงได้ (Dimmable)' },
   { value: 'Tunable White', label: 'เปลี่ยนอุณหภูมิแสงได้ (Tunable White)' },
+  { value: 'RGBW', label: 'RGBW' },
 ];
 
 export const FABRIC_OPTIONS = [
@@ -164,6 +165,10 @@ export const getModuleColorsByLightTemp = (lightTemp: string, lightControl: Ligh
     return { fill: 'rgba(232, 242, 255, 0.30)', stroke: '#0ea5e9', dot: '#0369a1' };
   }
 
+  if (normalized.includes('rgbw') || normalizedControl.includes('rgbw')) {
+    return { fill: 'rgba(196, 126, 255, 0.28)', stroke: '#9333ea', dot: '#6b21a8' };
+  }
+
   if (normalized.includes('3000')) {
     return { fill: 'rgba(255, 195, 112, 0.26)', stroke: '#d97706', dot: '#b45309' };
   }
@@ -176,10 +181,6 @@ export const getModuleColorsByLightTemp = (lightTemp: string, lightControl: Ligh
   if (normalized.includes('6500')) {
     return { fill: 'rgba(181, 225, 255, 0.28)', stroke: '#2563eb', dot: '#1d4ed8' };
   }
-  if (normalized.includes('rgbw')) {
-    return { fill: 'rgba(196, 126, 255, 0.28)', stroke: '#9333ea', dot: '#6b21a8' };
-  }
-
   return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
 };
 
