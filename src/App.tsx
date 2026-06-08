@@ -2660,6 +2660,7 @@ Use Chain-of-Thought reasoning to:
       alert("Please add at least one page to the template.");
       return;
     }
+    
     setIsSendingBOQ(true);
     setSubmitProgressText('กำลังสร้าง Drawing PDF สำหรับส่งไปยังระบบ...');
     try {
@@ -2684,6 +2685,17 @@ Use Chain-of-Thought reasoning to:
         }
       }
 
+      // --- เพิ่มการสร้างไฟล์ AutoCAD Script ---
+      const cadScriptStr = generateAutoCADScript(effectiveTemplatePages, docDetails.projectName);
+      const cadScriptBytes = new TextEncoder().encode('\uFEFF' + cadScriptStr);
+      let cadScriptBinary = '';
+      cadScriptBytes.forEach((b) => { cadScriptBinary += String.fromCharCode(b); });
+      const cadScriptPayload = {
+        mimeType: 'text/plain',
+        data: window.btoa(cadScriptBinary),
+        name: `${docDetails.projectName || 'Project'}_AutoCAD.scr`
+      };
+
       // เตรียมข้อมูลยิง API
       const payload = {
         aoName: aoName,
@@ -2692,6 +2704,7 @@ Use Chain-of-Thought reasoning to:
         structure: structure,
         templateFile: templateFilePayload,
         pricingPdfFile: pricingPdfFilePayload,
+        cadScriptFile: cadScriptPayload, // <--- เพิ่มไฟล์ .scr เข้าไปตรงนี้
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -2723,7 +2736,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbzq7eGt0YetZoNazIKbqzxRqiArYNbCPQ8sZ8SPzZ6iOgHcHo9CtNyU3PMwzCRh3F2Ckw/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbxrPM1cgGX8c3cRM1daTKGdTNhhVR36BMvKIrcGKxnd6R7AYJzM0uwm4AUFV6FQX3PqPg/exec";
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
@@ -2952,6 +2965,58 @@ Use Chain-of-Thought reasoning to:
     return missing;
   };
 
+  // --- นำฟังก์ชันนี้มาวางเป็นฟังก์ชันส่วนกลาง ---
+  const generateAutoCADScript = (pages: PageData[], projectName: string): string => {
+    let script = "; AutoCAD Script for L&E Stretch Ceiling\n";
+    script += `; Project: ${projectName || 'Unknown'}\n`;
+    script += "; Generated automatically by Web Planner\n";
+    script += "CMDECHO\n0\n";
+    
+    let offsetX = 0; 
+    
+    pages.forEach((page, index) => {
+      const isRGBW = page.t === 'RGBW' || page.c === 'RGBW';
+      const blockName = isRGBW ? "SLM08_Module" : "SLM04_Module";
+      const modW = isRGBW ? 93 : 44;
+      const modH = isRGBW ? 32 : 38;
+      
+      script += `\n; --- Type ${index + 1}: ${page.name} ---\n`;
+      
+      // วาดกรอบสี่เหลี่ยม Bounding Box เป็น Reference
+      script += `_RECTANG\n${offsetX},0\n${offsetX + page.bbW},${page.bbH}\n`;
+      
+      // วาง Text ชื่อโคมไฟไว้ด้านล่าง
+      const textX = offsetX + (page.bbW / 2);
+      script += `_TEXT\n_J\n_MC\n${textX},-200\n100\n0\n${page.name} (${page.q} SETs)\n`;
+      
+      // ใช้ Regex สกัดค่าพิกัดการวาง Module จาก SVG (translate x, y)
+      const translateRegex = /transform="translate\(([-0-9.]+)[,\s]+([-0-9.]+)\)"/g;
+      let match;
+      let count = 0;
+      
+      while ((match = translateRegex.exec(page.svgContent)) !== null) {
+        const x = parseFloat(match[1]);
+        const y = parseFloat(match[2]);
+        
+        // AutoCAD แกน Y จะวิ่งขึ้น (ตรงข้ามกับ SVG ที่วิ่งลง) จึงต้องกลับแกน Y
+        const cadX = offsetX + x + (modW / 2);
+        const cadY = page.bbH - (y + (modH / 2));
+        
+        // คำสั่ง Insert Block วางหลอดไฟ
+        script += `_-INSERT\n${blockName}\n${cadX.toFixed(2)},${cadY.toFixed(2)}\n1\n1\n0\n`;
+        count++;
+      }
+      
+      script += `; Inserted ${count} modules\n`;
+      // ขยับจุดวาดโคมดวงถัดไป ให้ห่างออกไป 1 เมตร (1000 mm)
+      offsetX += page.bbW + 1000; 
+    });
+    
+    script += "\n_ZOOM\n_E\n"; // Zoom เห็นทั้งหมดเมื่อวาดจบ
+    script += "CMDECHO\n1\n";
+    return script;
+  };
+
   const submitChecklistForm = async () => {
     if (!aoName.trim() || !docDetails.projectName.trim() || !docDetails.location.trim() || !structure.trim()) {
       alert('กรุณากรอก AO/แผนก, ชื่อ Project, สถานที่หน้างาน และเลือกคำตอบงานโครงสร้างให้ครบ');
@@ -3036,6 +3101,17 @@ Use Chain-of-Thought reasoning to:
         };
       }));
 
+      // --- เพิ่มการสร้างไฟล์ AutoCAD Script ---
+      const cadScriptStr = generateAutoCADScript(effectiveTemplatePages, docDetails.projectName);
+      const cadScriptBytes = new TextEncoder().encode('\uFEFF' + cadScriptStr);
+      // เปลี่ยนจาก forEach มาใช้ Array.from ป้องกัน TypeScript Error
+      const cadScriptBinary = Array.from(cadScriptBytes).map(b => String.fromCharCode(b)).join('');
+      const cadScriptPayload = {
+        mimeType: 'text/plain',
+        data: window.btoa(cadScriptBinary),
+        name: `${docDetails.projectName || 'Project'}_AutoCAD.scr`
+      };
+
       const payload = {
         aoName,
         projectName: docDetails.projectName,
@@ -3044,6 +3120,7 @@ Use Chain-of-Thought reasoning to:
         templateFile: templateFilePayload,
         csvFile: csvFilePayload,
         pricingPdfFile: pricingPdfFilePayload,
+        cadScriptFile: cadScriptPayload, // <--- เพิ่มไฟล์ .scr เข้าไปตรงนี้
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -3067,7 +3144,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbzq7eGt0YetZoNazIKbqzxRqiArYNbCPQ8sZ8SPzZ6iOgHcHo9CtNyU3PMwzCRh3F2Ckw/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbxrPM1cgGX8c3cRM1daTKGdTNhhVR36BMvKIrcGKxnd6R7AYJzM0uwm4AUFV6FQX3PqPg/exec';
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');

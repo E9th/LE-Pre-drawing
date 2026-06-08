@@ -149,7 +149,9 @@ function doPost(e) {
       "ไฟล์ CSV",
       "สถานะไฟล์ CSV",
       "ไฟล์ BOQ PDF",
-      "สถานะไฟล์ BOQ PDF"
+      "สถานะไฟล์ BOQ PDF",
+      "ไฟล์ AutoCAD",         // <-- เพิ่มหัวคอลัมน์ใหม่ตรงนี้ครับ
+      "สถานะไฟล์ AutoCAD"     // <-- เพิ่มหัวคอลัมน์ใหม่ตรงนี้ครับ
     ]);
     var lampsSheet = getOrCreateSheet_(ss, "รายละเอียดแต่ละโคม", [
       "วันเวลา",
@@ -223,6 +225,13 @@ function doPost(e) {
       (data.projectName || "BOQ") + "_BOQ.pdf"
     );
 
+    // --- เพิ่มการ Upload ไฟล์ AutoCAD Script ---
+    var cadScriptUpload = uploadBase64File_(
+      folder,
+      data.cadScriptFile,
+      (data.projectName || "Project") + "_AutoCAD.scr"
+    );
+
     filesSheet.appendRow([
       timestamp,
       submissionId,
@@ -263,6 +272,21 @@ function doPost(e) {
       pricingPdfUpload.status,
       pricingPdfUpload.url,
       pricingPdfUpload.error
+    ]);
+
+    // --- เพิ่มการบันทึกประวัติไฟล์ AutoCAD ลงชีตไฟล์แนบ ---
+    filesSheet.appendRow([
+      timestamp,
+      submissionId,
+      "AutoCAD Script",
+      "",
+      "",
+      cadScriptUpload.fileName,
+      cadScriptUpload.mimeType,
+      cadScriptUpload.sizeBytes,
+      cadScriptUpload.status,
+      cadScriptUpload.url,
+      cadScriptUpload.error
     ]);
 
     for (var i = 0; i < lamps.length; i++) {
@@ -406,7 +430,9 @@ function doPost(e) {
       csvUpload.url,
       csvUpload.status,
       pricingPdfUpload.url,
-      pricingPdfUpload.status
+      pricingPdfUpload.status,
+      cadScriptUpload.url,      // <-- บันทึก URL ของไฟล์ AutoCAD ลงชีตสรุปรายการ
+      cadScriptUpload.status    // <-- บันทึกสถานะไฟล์ AutoCAD ลงชีตสรุปรายการ
     ]);
 
     var formattedPrice = estimatedPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" });
@@ -425,6 +451,7 @@ function doPost(e) {
       "📄 Template Drawing: " + templateUpload.url + "\n" +
       "🧾 BOQ CSV: " + csvUpload.url + "\n" +
       "📑 BOQ PDF: " + pricingPdfUpload.url + "\n" +
+      "📐 AutoCAD Script: " + cadScriptUpload.url + "\n" +  // <-- เพิ่มลิงก์ไฟล์ .scr ลงใน LINE
       "────────────────\n" +
       "📌 สรุปรวม\n" +
       "• พื้นที่รวม: " + formattedArea + " ตร.ม.\n" +
