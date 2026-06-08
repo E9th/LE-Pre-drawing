@@ -3,38 +3,46 @@ import { Square, Circle as CircleIcon, Triangle as TriangleIcon, CircleDot, Hexa
 import { jsPDF } from 'jspdf';
 import { GoogleGenAI, Type as GenAIType, ThinkingLevel } from '@google/genai';
 import opentype from 'opentype.js';
-
-type ShapeType = 'rectangle' | 'circle' | 'triangle' | 'donut' | 'ellipse' | 'semicircle' | 'u-shape' | 'c-shape' | 't-shape' | 'hollow-rect' | 'hexagon' | 'octagon' | 'custom' | 'polygon' | 'text';
-type LayoutType = 'grid' | 'staggered';
-type AppView = 'form' | 'planner';
-type LightControlType = '-' | 'On-Off' | 'Dimmable' | 'Tunable White';
-type AdvancedControlMode = 'dimmable' | 'tunable' | null;
-
-interface Point { x: number; y: number; }
-
-interface SavedShape {
-  id: string;
-  name: string;
-  path: string;
-  image?: string | null;
-}
-
-interface FormLampItem {
-  id: string;
-  objectShape: ShapeType;
-  shapeName: string;
-  w: number;
-  l: number;
-  innerDia: number;
-  modulesPerLamp: number;
-  q: number;
-  h: string;
-  d: string;
-  f: string;
-  t: string;
-  c: LightControlType;
-  file: File | null;
-}
+import {
+  type ShapeType,
+  type LayoutType,
+  type AppView,
+  type LightControlType,
+  type AdvancedControlMode,
+  type Point,
+  type SavedShape,
+  type FormLampItem,
+  type DocumentDetails,
+  type PageData,
+  SHAPE_OPTIONS,
+  LIGHT_TEMP_OPTIONS,
+  LIGHT_CONTROL_OPTIONS,
+  FABRIC_OPTIONS,
+  DEPTH_OPTIONS,
+  DEFAULT_FORM_INPUTS,
+  createDefaultDocumentDetails,
+  createDefaultFormLamp,
+  getSpacingByDepth,
+  getModuleColorsByLightTemp,
+  shouldForceDualModuleLayout,
+  isDimmableControl,
+  isTunableWhiteControl,
+  getAdvancedControlMode,
+  isAdvancedControl,
+  getDriverLabelByControlMode,
+  getSmartControllerLabelByControlMode,
+  getDriverUnitPriceByControlMode,
+  getSmartControllerUnitPriceByControlMode,
+  getAdvancedBoqColumnLabels,
+  roundUpToInteger,
+  roundUpToDecimalPlaces,
+  escapeSvgText,
+  getNextShapeName,
+  normalizeShapeName,
+  toValidQty,
+  parseHeightMeters,
+} from './lib/lampDomain';
+import { buildFormTemplatePage as buildFormTemplatePageUtil, generateCoverPageSVG as generateCoverPageSVGUtil, generateDrawingPageSVG as generateDrawingPageSVGUtil } from './lib/drawing';
 
 type BoqRowKind = 'header-top' | 'header-sub' | 'size' | 'area' | 'item' | 'section-total' | 'section-summary' | 'spacer' | 'grand-total';
 
@@ -44,80 +52,13 @@ interface BoqRow {
   qtyDecimals?: number;
 }
 
+type PlacedModule = { x: number; y: number; w: number; h: number };
+
 // Higher render resolution for crisper user-downloaded PDFs.
 const TEMPLATE_DOWNLOAD_WIDTH = 4200;
 const TEMPLATE_DOWNLOAD_HEIGHT = 2968;
 const TEMPLATE_API_WIDTH = 1680;
 const TEMPLATE_API_HEIGHT = 1188;
-
-const SHAPE_OPTIONS: Array<{ value: ShapeType; label: string }> = [
-  { value: 'rectangle', label: 'Rectangle (สี่เหลี่ยม)' },
-  { value: 'circle', label: 'Circle (วงกลม)' },
-  { value: 'triangle', label: 'Triangle (สามเหลี่ยม)' },
-  { value: 'donut', label: 'Donut (วงแหวน)' },
-  { value: 'ellipse', label: 'Ellipse (วงรี)' },
-  { value: 'semicircle', label: 'Semicircle (ครึ่งวงกลม)' },
-  { value: 'u-shape', label: 'U-Shape (ตัวยู)' },
-  { value: 'c-shape', label: 'C-Shape (ตัวซี)' },
-  { value: 't-shape', label: 'T-Shape (ตัวที)' },
-  { value: 'hollow-rect', label: 'Hollow Rectangle (กรอบสี่เหลี่ยม)' },
-  { value: 'hexagon', label: 'Hexagon (หกเหลี่ยม)' },
-  { value: 'octagon', label: 'Octagon (แปดเหลี่ยม)' },
-  { value: 'polygon', label: 'Custom Polygon (หลายเหลี่ยม)' },
-  { value: 'text', label: 'Text Shape (ตัวอักษร)' },
-  { value: 'custom', label: 'AI Custom (กำหนดเอง)' },
-];
-
-const parseHeightMeters = (value: string): number => {
-  const match = String(value ?? '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
-  if (!match) return 0;
-  const parsed = Number(match[0]);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const getSpacingByDepth = (depth: string): { x: number; y: number } | null => {
-  const match = String(depth || '').match(/(\d+)/);
-  const cm = match ? Number(match[1]) : Number.NaN;
-  if (cm === 5) return { x: 50, y: 50 };
-  if (cm === 10) return { x: 100, y: 100 };
-  if (cm === 15) return { x: 150, y: 150 };
-  if (cm === 20) return { x: 200, y: 200 };
-  return null;
-};
-
-const getModuleColorsByLightTemp = (lightTemp: string, lightControl: LightControlType | string = '-'): { fill: string; stroke: string; dot: string } => {
-  const normalized = String(lightTemp || '').toLowerCase();
-  const normalizedControl = String(lightControl || '').toLowerCase();
-
-  if (normalizedControl.includes('tunable')) {
-    return { fill: 'rgba(232, 242, 255, 0.30)', stroke: '#0ea5e9', dot: '#0369a1' };
-  }
-
-  if (normalized.includes('3000')) {
-    return { fill: 'rgba(255, 195, 112, 0.26)', stroke: '#d97706', dot: '#b45309' };
-  }
-  if (normalized.includes('4000')) {
-    return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
-  }
-  if (normalized.includes('5000')) {
-    return { fill: 'rgba(224, 242, 254, 0.30)', stroke: '#0284c7', dot: '#0369a1' };
-  }
-  if (normalized.includes('6500')) {
-    return { fill: 'rgba(181, 225, 255, 0.28)', stroke: '#2563eb', dot: '#1d4ed8' };
-  }
-  if (normalized.includes('rgbw')) {
-    return { fill: 'rgba(196, 126, 255, 0.28)', stroke: '#9333ea', dot: '#6b21a8' };
-  }
-
-  return { fill: 'rgba(255, 243, 214, 0.34)', stroke: '#a16207', dot: '#854d0e' };
-};
-
-const shouldForceDualModuleLayout = (lightTemp: string, lightControl: LightControlType | string = '-'): boolean => {
-  const normalized = String(lightTemp || '').toLowerCase();
-  const normalizedControl = String(lightControl || '').toLowerCase();
-  // Keep backward compatibility for older saved data that may still have Tunable White in light temperature.
-  return normalizedControl.includes('tunable') || normalized.includes('tunable') || normalized.includes('5000');
-};
 
 const LED_MODULE_WATT = 1.44;
 const SWITCHING_POWER_WATT = 120;
@@ -132,92 +73,6 @@ const MODULE_PRICE_PER_UNIT = 24;
 const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
 const BOQ_TITLE = 'Bill Of Quantities Stretch Ceiling';
 const ADVANCED_DRAWING_PASSWORD = 'kp_anakin';
-
-const isDimmableControl = (lightControl: LightControlType | string): boolean => {
-  return String(lightControl || '').toLowerCase().includes('dimmable');
-};
-
-const isTunableWhiteControl = (lightControl: LightControlType | string): boolean => {
-  return String(lightControl || '').toLowerCase().includes('tunable');
-};
-
-const getAdvancedControlMode = (lightControl: LightControlType | string): AdvancedControlMode => {
-  if (isTunableWhiteControl(lightControl)) return 'tunable';
-  if (isDimmableControl(lightControl)) return 'dimmable';
-  return null;
-};
-
-const isAdvancedControl = (lightControl: LightControlType | string): boolean => {
-  return getAdvancedControlMode(lightControl) !== null;
-};
-
-const getDriverLabelByControlMode = (mode: AdvancedControlMode): string => {
-  return mode === 'tunable' ? 'Driver DT8 CCT' : 'Driver PWM';
-};
-
-const getSmartControllerLabelByControlMode = (mode: AdvancedControlMode): string => {
-  return mode === 'tunable' ? 'Wise Play2 Smart Remote RSS05' : 'Wise Play 2 Smart Keypad';
-};
-
-const getDriverUnitPriceByControlMode = (mode: AdvancedControlMode): number => {
-  return mode === 'tunable' ? DRIVER_DT8_CCT_PRICE_PER_UNIT : DRIVER_PWM_PRICE_PER_UNIT;
-};
-
-const getSmartControllerUnitPriceByControlMode = (mode: AdvancedControlMode): number => {
-  return mode === 'tunable' ? WISE_PLAY_SMART_REMOTE_RSS05_PRICE_PER_UNIT : WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT;
-};
-
-const getAdvancedBoqColumnLabels = (mode: AdvancedControlMode) => {
-  const driverLabel = getDriverLabelByControlMode(mode);
-  const smartControllerLabel = getSmartControllerLabelByControlMode(mode);
-  return {
-    driverQtyPerLamp: `จำนวน ${driverLabel}/โคม`,
-    driverQtyPerType: `จำนวน ${driverLabel}/Type`,
-    driverCostTotal: `ราคา ${driverLabel}/รวม`,
-    smartControllerQtyPerLamp: mode === 'dimmable'
-      ? 'จำนวน DWise Play 2 Smart Keypad/โคม'
-      : `จำนวน ${smartControllerLabel}/โคม`,
-    smartControllerQtyPerType: `จำนวน ${smartControllerLabel}/Type`,
-    smartControllerCostTotal: `ราคา ${smartControllerLabel}/รวม`,
-  };
-};
-
-const roundUpToInteger = (value: number): number => {
-  if (!Number.isFinite(value)) return 0;
-  return Math.ceil(value);
-};
-
-const roundUpToDecimalPlaces = (value: number, decimals: number): number => {
-  if (!Number.isFinite(value)) return 0;
-  const safeDecimals = Math.max(0, decimals);
-  const factor = 10 ** safeDecimals;
-  return Math.ceil((value + Number.EPSILON) * factor) / factor;
-};
-
-const escapeSvgText = (value: string): string => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;');
-
-const getNextShapeName = (lamps: FormLampItem[]): string => {
-  const maxSeq = lamps.reduce((max, lamp) => {
-    const match = String(lamp.shapeName || '').trim().match(/^SC-(\d+)$/i);
-    if (!match) return max;
-    const value = Number(match[1]);
-    if (!Number.isFinite(value)) return max;
-    return Math.max(max, value);
-  }, 0);
-  return `SC-${String(maxSeq + 1).padStart(2, '0')}`;
-};
-
-const normalizeShapeName = (name: string): string => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-
-const toValidQty = (value: number): number => {
-  if (!Number.isFinite(value)) return 0;
-  return value > 0 ? value : 0;
-};
 
 const Input = ({ label, value, onChange, required = false, invalid = false, allowBlank = false, placeholder = '', helpText }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean, allowBlank?: boolean, placeholder?: string, helpText?: string }) => (
   <div>
@@ -420,44 +275,16 @@ export default function App() {
     approvedBy: string;
   }
 
-  const [docDetails, setDocDetails] = useState<DocumentDetails>({
-    projectName: '',
-    location: '',
-    projectNumber: '',
-    date: 'XX/XX/2026',
-    client: '',
-    drawingTitle: 'Floor plan',
-    status: 'Draft, Design , Development',
-    designBy: 'DRAFT01',
-    checkedBy: 'Visawa.De',
-    approvedBy: ''
-  });
-
-  interface PageData {
-    id: string;
-    svgContent: string;
-    viewBox: string;
-    bbW: number;
-    bbH: number;
-    moduleCount: number;
-    name: string;
-    q: number;
-    h: string;
-    d: string;
-    f: string;
-    t: string;
-    c: LightControlType;
-    exactAreaSqm: number;
-  }
+  const [docDetails, setDocDetails] = useState<DocumentDetails>(() => createDefaultDocumentDetails());
   const [pages, setPages] = useState<PageData[]>([]);
   const [showTemplateSettings, setShowTemplateSettings] = useState(false);
   // --- BOQ Form States ---
-  const [lampQ, setLampQ] = useState(1);
-  const [lampH, setLampH] = useState('3');
-  const [lampD, setLampD] = useState('15 เซนติเมตร (Standard)');
-  const [lampF, setLampF] = useState('ผ้าใบขาว');
-  const [lampLight, setLampLight] = useState('3000K');
-  const [lampControl, setLampControl] = useState<LightControlType>('-');
+  const [lampQ, setLampQ] = useState(DEFAULT_FORM_INPUTS.lampQ);
+  const [lampH, setLampH] = useState(DEFAULT_FORM_INPUTS.lampH);
+  const [lampD, setLampD] = useState(DEFAULT_FORM_INPUTS.lampD);
+  const [lampF, setLampF] = useState(DEFAULT_FORM_INPUTS.lampF);
+  const [lampLight, setLampLight] = useState(DEFAULT_FORM_INPUTS.lampLight);
+  const [lampControl, setLampControl] = useState<LightControlType>(DEFAULT_FORM_INPUTS.lampControl);
   const [structure, setStructure] = useState('');
   const [aoName, setAoName] = useState('');
   const [isSendingBOQ, setIsSendingBOQ] = useState(false);
@@ -467,24 +294,7 @@ export default function App() {
   const [isSubmittingChecklist, setIsSubmittingChecklist] = useState(false);
   const [submitProgressText, setSubmitProgressText] = useState('');
   const [logoSvgData, setLogoSvgData] = useState<{ viewBox: string; inner: string } | null>(null);
-  const [formLamps, setFormLamps] = useState<FormLampItem[]>([
-    {
-      id: Math.random().toString(36).slice(2),
-      objectShape: 'rectangle',
-      shapeName: 'SC-01',
-      w: Number.NaN,
-      l: Number.NaN,
-      innerDia: 500,
-      modulesPerLamp: 1,
-      q: Number.NaN,
-      h: '3',
-      d: '15 เซนติเมตร (Standard)',
-      f: 'ผ้าใบขาว',
-      t: '3000K',
-      c: '-',
-      file: null,
-    },
-  ]);
+  const [formLamps, setFormLamps] = useState<FormLampItem[]>([createDefaultFormLamp()]);
   const [plannerLampId, setPlannerLampId] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
@@ -892,9 +702,9 @@ export default function App() {
   }, [shape, rectW, rectH, circleD, triA, triB, triC, donutOuterD, donutInnerD, ellipseW, ellipseH, semicircleD, uW, uH, uT, cW, cH, cT, tW, tH, tT, hRectW, hRectH, hRectT, hexW, hexH, octW, octH, modW, modH, spaceX, spaceY, layoutType, customPath, polygonPoints, polygonBounds, textPath, textBounds, lampLight, lampControl]);
 
   let minDx = Infinity;
-  let modX: {x: number, y: number, w: number, h: number} | null = null;
+  let modX: PlacedModule | null = null;
   let minDy = Infinity;
-  let modY: {x: number, y: number, w: number, h: number} | null = null;
+  let modY: PlacedModule | null = null;
 
   if (showCenterLines && result.modules.length > 0) {
     result.modules.forEach(mod => {
@@ -1699,27 +1509,37 @@ Use Chain-of-Thought reasoning to:
       </g>
     ` : '';
 
-    const centerOffsetXMarkup = showCenterLines && modXLocal && minDxLocal > 0.1 ? `
+    const centerOffsetXMarkup = (() => {
+      if (!showCenterLines || !modXLocal || minDxLocal <= 0.1) return '';
+      const placedModule = modXLocal as PlacedModule;
+      const centerX = placedModule.x + placedModule.w / 2;
+      return `
       <g stroke="#525252" fill="none" stroke-width="${localStroke}" style="font-size: ${localFont * 0.8}px" class="font-mono">
         <line x1="${width / 2}" y1="${-localTick}" x2="${width / 2}" y2="${-localOffset / 2 - localTick}" />
-        <line x1="${modXLocal.x + modXLocal.w / 2}" y1="${-localTick}" x2="${modXLocal.x + modXLocal.w / 2}" y2="${-localOffset / 2 - localTick}" />
-        <line x1="${width / 2}" y1="${-localOffset / 2}" x2="${modXLocal.x + modXLocal.w / 2}" y2="${-localOffset / 2}" />
+        <line x1="${centerX}" y1="${-localTick}" x2="${centerX}" y2="${-localOffset / 2 - localTick}" />
+        <line x1="${width / 2}" y1="${-localOffset / 2}" x2="${centerX}" y2="${-localOffset / 2}" />
         <path d="M ${width / 2 + localArrow} ${-localOffset / 2 - localArrow / 2} L ${width / 2} ${-localOffset / 2} L ${width / 2 + localArrow} ${-localOffset / 2 + localArrow / 2}" />
-        <path d="M ${modXLocal.x + modXLocal.w / 2 - localArrow} ${-localOffset / 2 - localArrow / 2} L ${modXLocal.x + modXLocal.w / 2} ${-localOffset / 2} L ${modXLocal.x + modXLocal.w / 2 - localArrow} ${-localOffset / 2 + localArrow / 2}" />
-        <text x="${(width / 2 + modXLocal.x + modXLocal.w / 2) / 2}" y="${-localOffset / 2 - localFont * 0.3}" fill="#525252" stroke="none" text-anchor="middle">${Math.round(minDxLocal * 10) / 10}</text>
+        <path d="M ${centerX - localArrow} ${-localOffset / 2 - localArrow / 2} L ${centerX} ${-localOffset / 2} L ${centerX - localArrow} ${-localOffset / 2 + localArrow / 2}" />
+        <text x="${(width / 2 + centerX) / 2}" y="${-localOffset / 2 - localFont * 0.3}" fill="#525252" stroke="none" text-anchor="middle">${Math.round(minDxLocal * 10) / 10}</text>
       </g>
-    ` : '';
+      `;
+    })();
 
-    const centerOffsetYMarkup = showCenterLines && modYLocal && minDyLocal > 0.1 ? `
+    const centerOffsetYMarkup = (() => {
+      if (!showCenterLines || !modYLocal || minDyLocal <= 0.1) return '';
+      const placedModule = modYLocal as PlacedModule;
+      const centerY = placedModule.y + placedModule.h / 2;
+      return `
       <g stroke="#525252" fill="none" stroke-width="${localStroke}" style="font-size: ${localFont * 0.8}px" class="font-mono">
         <line x1="${-localTick}" y1="${height / 2}" x2="${-localOffset / 2 - localTick}" y2="${height / 2}" />
-        <line x1="${-localTick}" y1="${modYLocal.y + modYLocal.h / 2}" x2="${-localOffset / 2 - localTick}" y2="${modYLocal.y + modYLocal.h / 2}" />
-        <line x1="${-localOffset / 2}" y1="${height / 2}" x2="${-localOffset / 2}" y2="${modYLocal.y + modYLocal.h / 2}" />
+        <line x1="${-localTick}" y1="${centerY}" x2="${-localOffset / 2 - localTick}" y2="${centerY}" />
+        <line x1="${-localOffset / 2}" y1="${height / 2}" x2="${-localOffset / 2}" y2="${centerY}" />
         <path d="M ${-localOffset / 2 - localArrow / 2} ${height / 2 + localArrow} L ${-localOffset / 2} ${height / 2} L ${-localOffset / 2 + localArrow / 2} ${height / 2 + localArrow}" />
-        <path d="M ${-localOffset / 2 - localArrow / 2} ${modYLocal.y + modYLocal.h / 2 - localArrow} L ${-localOffset / 2} ${modYLocal.y + modYLocal.h / 2} L ${-localOffset / 2 + localArrow / 2} ${modYLocal.y + modYLocal.h / 2 - localArrow}" />
-        <text x="${-localOffset / 2 - localFont * 0.3}" y="${(height / 2 + modYLocal.y + modYLocal.h / 2) / 2}" fill="#525252" stroke="none" text-anchor="middle" transform="rotate(-90, ${-localOffset / 2 - localFont * 0.3}, ${(height / 2 + modYLocal.y + modYLocal.h / 2) / 2})">${Math.round(minDyLocal * 10) / 10}</text>
+        <path d="M ${-localOffset / 2 - localArrow / 2} ${centerY - localArrow} L ${-localOffset / 2} ${centerY} L ${-localOffset / 2 + localArrow / 2} ${centerY - localArrow}" />
+        <text x="${-localOffset / 2 - localFont * 0.3}" y="${(height / 2 + centerY) / 2}" fill="#525252" stroke="none" text-anchor="middle" transform="rotate(-90, ${-localOffset / 2 - localFont * 0.3}, ${(height / 2 + centerY) / 2})">${Math.round(minDyLocal * 10) / 10}</text>
       </g>
-    ` : '';
+      `;
+    })();
 
     const qty = toValidQty(lamp.q);
     const labelMarkup = `
@@ -1750,7 +1570,19 @@ Use Chain-of-Thought reasoning to:
     };
   };
 
-  const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePage(lamp, index)), [formLamps, modW, modH, spaceX, spaceY, layoutType, showCenterLines, lampLight, lampControl, moduleName]);
+  const formTemplatePages = useMemo(() => formLamps.map((lamp, index) => buildFormTemplatePageUtil({
+    lamp,
+    index,
+    modW,
+    modH,
+    spaceX,
+    spaceY,
+    layoutType,
+    showCenterLines,
+    moduleName,
+    lampLight,
+    lampControl,
+  })), [formLamps, modW, modH, spaceX, spaceY, layoutType, showCenterLines, lampLight, lampControl, moduleName]);
   const moduleColors = useMemo(() => getModuleColorsByLightTemp(lampLight, lampControl), [lampLight, lampControl]);
   const plannerDraftPage = useMemo<PageData | null>(() => {
     if (appView !== 'planner' || !plannerLampId) return null;
@@ -2707,9 +2539,9 @@ Use Chain-of-Thought reasoning to:
       format: 'a3'
     });
 
-    const coverSvgString = generateCoverPageSVG(docDetails);
+    const coverSvgString = generateCoverPageSVGUtil(docDetails, logoSvgData);
     const pageSvgStrings = targetPages.map((page, idx) =>
-      generateDrawingPageSVG(docDetails, page, idx + 1, targetPages.length)
+      generateDrawingPageSVGUtil(docDetails, page, idx + 1, targetPages.length, logoSvgData)
     );
 
     const images = await Promise.all([
@@ -3481,30 +3313,27 @@ Use Chain-of-Thought reasoning to:
                           disabled={index > 0}
                           className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ความลึกของโครง') ? 'border-red-400' : 'border-neutral-300'} ${index > 0 ? 'cursor-not-allowed bg-neutral-100 text-neutral-500' : ''}`}
                         >
-                          <option value="5 เซนติเมตร">5 เซนติเมตร</option>
-                          <option value="10 เซนติเมตร">10 เซนติเมตร</option>
-                          <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
-                          <option value="20 เซนติเมตร">20 เซนติเมตร</option>
-                          <option value="อื่นๆ">อื่นๆ</option>
+                          {DEPTH_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
                         </select>
                         {index > 0 && <p className="mt-1 text-[11px] text-neutral-500">ใช้ค่าร่วมทั้งโปรเจกต์ แก้ที่โคมรายการแรก</p>}
                       </div>
                       <div>
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">ชนิดของผ้าใบ<span className="text-red-600"> *</span></label>
                         <select value={lamp.f} onChange={(e) => updateFormLamp(lamp.id, { f: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('ชนิดของผ้าใบ') ? 'border-red-400' : 'border-neutral-300'}`}>
-                          <option value="ผ้าใบขาว">ผ้าใบขาว</option>
-                          <option value="พิมพ์ลาย">พิมพ์ลาย</option>
+                          {FABRIC_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
                         </select>
                       </div>
                       <div className="md:col-span-2 grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div>
                           <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">อุณหภูมิแสง<span className="text-red-600"> *</span></label>
                           <select value={lamp.t} onChange={(e) => updateFormLamp(lamp.id, { t: e.target.value })} className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('อุณหภูมิแสง') ? 'border-red-400' : 'border-neutral-300'}`}>
-                            <option value="3000K">3000K</option>
-                            <option value="4000K">4000K</option>
-                            <option value="5000K">5000K</option>
-                            <option value="6500K">6500K</option>
-                            <option value="RGBW">RGBW</option>
+                            {LIGHT_TEMP_OPTIONS.map((option) => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
                           </select>
                         </div>
                         <div>
@@ -3515,10 +3344,9 @@ Use Chain-of-Thought reasoning to:
                             disabled={index > 0}
                             className={`w-full rounded border bg-white px-2 py-1.5 text-sm ${missingFields.includes('การควบคุมแสง') ? 'border-red-400' : 'border-neutral-300'} ${index > 0 ? 'cursor-not-allowed bg-neutral-100 text-neutral-500' : ''}`}
                           >
-                            <option value="-">-</option>
-                            <option value="On-Off">เปิด-ปิด(On-Off)</option>
-                            <option value="Dimmable">สามารถหรี่แสงได้ (Dimmable)</option>
-                            <option value="Tunable White">เปลี่ยนอุณหภูมิแสงได้ (Tunable White)</option>
+                            {LIGHT_CONTROL_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
                           </select>
                           {index > 0 && <p className="mt-1 text-[11px] text-neutral-500">ใช้ค่าร่วมทั้งโปรเจกต์ แก้ที่โคมรายการแรก</p>}
                         </div>
@@ -4005,38 +3833,34 @@ Use Chain-of-Thought reasoning to:
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Depth (ความลึก)</label>
                 <select value={lampD} onChange={(e) => setLampD(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
-                  <option value="5 เซนติเมตร">5 เซนติเมตร</option>
-                  <option value="10 เซนติเมตร">10 เซนติเมตร</option>
-                  <option value="15 เซนติเมตร (Standard)">15 เซนติเมตร (Standard)</option>
-                  <option value="20 เซนติเมตร">20 เซนติเมตร</option>
-                  <option value="อื่นๆ">อื่นๆ</option>
+                  {DEPTH_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Fabric (ผ้าใบ)</label>
                   <select value={lampF} onChange={(e) => setLampF(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
-                    <option value="ผ้าใบขาว">ผ้าใบขาว</option>
-                    <option value="พิมพ์ลาย">พิมพ์ลาย</option>
+                    {FABRIC_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">Light Temp</label>
                   <select value={lampLight} onChange={(e) => setLampLight(e.target.value)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
-                    <option value="3000K">3000K</option>
-                    <option value="4000K">4000K</option>
-                    <option value="5000K">5000K</option>
-                    <option value="6500K">6500K</option>
-                    <option value="RGBW">RGBW</option>
+                    {LIGHT_TEMP_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">การควบคุมแสง</label>
                   <select value={lampControl} onChange={(e) => setLampControl(e.target.value as LightControlType)} className="w-full px-2 py-1.5 text-sm border rounded bg-white">
-                    <option value="-">-</option>
-                    <option value="On-Off">เปิด-ปิด(On-Off)</option>
-                    <option value="Dimmable">สามารถหรี่แสงได้ (Dimmable)</option>
-                    <option value="Tunable White">เปลี่ยนอุณหภูมิแสงได้ (Tunable White)</option>
+                    {LIGHT_CONTROL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -4251,34 +4075,36 @@ Use Chain-of-Thought reasoning to:
               )}
 
               {/* Center Offset Dimensions */}
-              {showCenterLines && modX && minDx > 0.1 && (
-                <g stroke="#525252" fill="none" strokeWidth={dynamicStrokeWidth} style={{ fontSize: `${dynamicFontSize * 0.8}px` }} className="font-mono">
-                  {/* Extension lines */}
-                  <line x1={result.bbW/2} y1={-tickSize} x2={result.bbW/2} y2={-offset/2 - tickSize} />
-                  <line x1={modX.x + modX.w/2} y1={-tickSize} x2={modX.x + modX.w/2} y2={-offset/2 - tickSize} />
-                  {/* Dimension line */}
-                  <line x1={result.bbW/2} y1={-offset/2} x2={modX.x + modX.w/2} y2={-offset/2} />
-                  {/* Arrows */}
-                  <path d={`M ${result.bbW/2 + arrowSize} ${-offset/2 - arrowSize/2} L ${result.bbW/2} ${-offset/2} L ${result.bbW/2 + arrowSize} ${-offset/2 + arrowSize/2}`} />
-                  <path d={`M ${modX.x + modX.w/2 - arrowSize} ${-offset/2 - arrowSize/2} L ${modX.x + modX.w/2} ${-offset/2} L ${modX.x + modX.w/2 - arrowSize} ${-offset/2 + arrowSize/2}`} />
-                  {/* Text */}
-                  <text x={(result.bbW/2 + modX.x + modX.w/2)/2} y={-offset/2 - dynamicFontSize * 0.3} fill="#525252" stroke="none" textAnchor="middle">{Math.round(minDx * 10) / 10}</text>
-                </g>
-              )}
-              {showCenterLines && modY && minDy > 0.1 && (
-                <g stroke="#525252" fill="none" strokeWidth={dynamicStrokeWidth} style={{ fontSize: `${dynamicFontSize * 0.8}px` }} className="font-mono">
-                  {/* Extension lines */}
-                  <line x1={-tickSize} y1={result.bbH/2} x2={-offset/2 - tickSize} y2={result.bbH/2} />
-                  <line x1={-tickSize} y1={modY.y + modY.h/2} x2={-offset/2 - tickSize} y2={modY.y + modY.h/2} />
-                  {/* Dimension line */}
-                  <line x1={-offset/2} y1={result.bbH/2} x2={-offset/2} y2={modY.y + modY.h/2} />
-                  {/* Arrows */}
-                  <path d={`M ${-offset/2 - arrowSize/2} ${result.bbH/2 + arrowSize} L ${-offset/2} ${result.bbH/2} L ${-offset/2 + arrowSize/2} ${result.bbH/2 + arrowSize}`} />
-                  <path d={`M ${-offset/2 - arrowSize/2} ${modY.y + modY.h/2 - arrowSize} L ${-offset/2} ${modY.y + modY.h/2} L ${-offset/2 + arrowSize/2} ${modY.y + modY.h/2 - arrowSize}`} />
-                  {/* Text */}
-                  <text x={-offset/2 - dynamicFontSize * 0.3} y={(result.bbH/2 + modY.y + modY.h/2)/2} fill="#525252" stroke="none" textAnchor="middle" transform={`rotate(-90, ${-offset/2 - dynamicFontSize * 0.3}, ${(result.bbH/2 + modY.y + modY.h/2)/2})`}>{Math.round(minDy * 10) / 10}</text>
-                </g>
-              )}
+              {(() => {
+                if (!showCenterLines || !modX || minDx <= 0.1) return null;
+                const placedModule = modX as PlacedModule;
+                const centerX = placedModule.x + placedModule.w / 2;
+                return (
+                  <g stroke="#525252" fill="none" strokeWidth={dynamicStrokeWidth} style={{ fontSize: `${dynamicFontSize * 0.8}px` }} className="font-mono">
+                    <line x1={result.bbW / 2} y1={-tickSize} x2={result.bbW / 2} y2={-offset / 2 - tickSize} />
+                    <line x1={centerX} y1={-tickSize} x2={centerX} y2={-offset / 2 - tickSize} />
+                    <line x1={result.bbW / 2} y1={-offset / 2} x2={centerX} y2={-offset / 2} />
+                    <path d={`M ${result.bbW / 2 + arrowSize} ${-offset / 2 - arrowSize / 2} L ${result.bbW / 2} ${-offset / 2} L ${result.bbW / 2 + arrowSize} ${-offset / 2 + arrowSize / 2}`} />
+                    <path d={`M ${centerX - arrowSize} ${-offset / 2 - arrowSize / 2} L ${centerX} ${-offset / 2} L ${centerX - arrowSize} ${-offset / 2 + arrowSize / 2}`} />
+                    <text x={(result.bbW / 2 + centerX) / 2} y={-offset / 2 - dynamicFontSize * 0.3} fill="#525252" stroke="none" textAnchor="middle">{Math.round(minDx * 10) / 10}</text>
+                  </g>
+                );
+              })()}
+              {(() => {
+                if (!showCenterLines || !modY || minDy <= 0.1) return null;
+                const placedModule = modY as PlacedModule;
+                const centerY = placedModule.y + placedModule.h / 2;
+                return (
+                  <g stroke="#525252" fill="none" strokeWidth={dynamicStrokeWidth} style={{ fontSize: `${dynamicFontSize * 0.8}px` }} className="font-mono">
+                    <line x1={-tickSize} y1={result.bbH / 2} x2={-offset / 2 - tickSize} y2={result.bbH / 2} />
+                    <line x1={-tickSize} y1={centerY} x2={-offset / 2 - tickSize} y2={centerY} />
+                    <line x1={-offset / 2} y1={result.bbH / 2} x2={-offset / 2} y2={centerY} />
+                    <path d={`M ${-offset / 2 - arrowSize / 2} ${result.bbH / 2 + arrowSize} L ${-offset / 2} ${result.bbH / 2} L ${-offset / 2 + arrowSize / 2} ${result.bbH / 2 + arrowSize}`} />
+                    <path d={`M ${-offset / 2 - arrowSize / 2} ${centerY - arrowSize} L ${-offset / 2} ${centerY} L ${-offset / 2 + arrowSize / 2} ${centerY - arrowSize}`} />
+                    <text x={-offset / 2 - dynamicFontSize * 0.3} y={(result.bbH / 2 + centerY) / 2} fill="#525252" stroke="none" textAnchor="middle" transform={`rotate(-90, ${-offset / 2 - dynamicFontSize * 0.3}, ${(result.bbH / 2 + centerY) / 2})`}>{Math.round(minDy * 10) / 10}</text>
+                  </g>
+                );
+              })()}
 
               {result.modules.map((mod, i) => (
                 <g key={i} transform={`translate(${mod.x}, ${mod.y})`}>
@@ -4451,7 +4277,7 @@ Use Chain-of-Thought reasoning to:
               <div className="flex flex-wrap justify-end gap-2">
                 <button onClick={() => setShowTemplateSettings(false)} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 rounded">Cancel</button>
                 <button
-                  onClick={downloadPricingPDF}
+                  onClick={() => { void downloadPricingPDF(); }}
                   disabled={!isDataConfirmed || effectiveTemplatePages.length === 0}
                   className="px-4 py-2 text-sm font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded disabled:opacity-50"
                 >
