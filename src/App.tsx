@@ -60,7 +60,6 @@ const TEMPLATE_DOWNLOAD_HEIGHT = 2968;
 const TEMPLATE_API_WIDTH = 1680;
 const TEMPLATE_API_HEIGHT = 1188;
 
-const LED_MODULE_WATT = 1.44;
 const SWITCHING_POWER_WATT = 120;
 const SWITCHING_PRICE_PER_UNIT = 500;
 const DRIVER_PWM_PRICE_PER_UNIT = 1150;
@@ -69,10 +68,29 @@ const WISE_PLAY_SMART_KEYPAD_PRICE_PER_UNIT = 1600;
 const WISE_PLAY_SMART_REMOTE_RSS05_PRICE_PER_UNIT = 1050;
 const WISE_PLAY_BRIDGE_PRICE_PER_UNIT = 1600;
 const COMMISSIONING_COST_PER_PROJECT = 5000;
-const MODULE_PRICE_PER_UNIT = 24;
 const BOQ_WATERMARK_TEXT = 'ข้อมูลนี้ใช้เฉพาะภายในบริษัท LE& เท่านั้น';
 const BOQ_TITLE = 'Bill Of Quantities Stretch Ceiling';
 const ADVANCED_DRAWING_PASSWORD = 'kp_anakin';
+
+const getModuleSpecs = (lampLight: string, modW: number, modH: number) => {
+  // ตรวจสอบว่าเป็นไฟ RGBW หรือมีขนาดเป็น 93x32 (SLM08) หรือไม่
+  const isSLM08 = lampLight === 'RGBW' || (modW === 93 && modH === 32) || (modW === 32 && modH === 93);
+
+  if (isSLM08) {
+    return {
+      name: 'SLM08',
+      watt: 3.0,     // SLM08 ใช้ไฟ 3 วัตต์
+      price: 98      // ราคา 98 บาท
+    };
+  }
+
+  // ถ้าไม่ใช่ ให้ใช้ค่าเริ่มต้นเป็น SLM04
+  return {
+    name: 'SLM04',
+    watt: 1.44,    // SLM04 ใช้ไฟ 1.44 วัตต์
+    price: 24      // ราคา 24 บาท
+  };
+};
 
 const Input = ({ label, value, onChange, required = false, invalid = false, allowBlank = false, placeholder = '', helpText }: { label: string, value: number, onChange: (v: number) => void, required?: boolean, invalid?: boolean, allowBlank?: boolean, placeholder?: string, helpText?: string }) => (
   <div>
@@ -326,12 +344,7 @@ export default function App() {
     const isRgbwSelected = lampLight === 'RGBW' || lampControl === 'RGBW';
     if (!isRgbwSelected) return;
 
-    if (lampLight !== 'RGBW') {
-      setLampLight('RGBW');
-    }
-    if (lampControl !== 'RGBW') {
-      setLampControl('RGBW');
-    }
+    // ลบการบังคับดึงค่า RGBW สลับไปมาออก เพื่อให้ Select ทำงานได้อิสระ
     if (modW !== 93) setModW(93);
     if (modH !== 32) setModH(32);
     if (spaceX !== 150) setSpaceX(150);
@@ -1267,15 +1280,6 @@ Use Chain-of-Thought reasoning to:
   }, [lampD]);
 
   React.useEffect(() => {
-    if (lampLight === 'RGBW' && lampControl !== 'RGBW') {
-      setLampControl('RGBW');
-      return;
-    }
-    if (lampControl === 'RGBW' && lampLight !== 'RGBW') {
-      setLampLight('RGBW');
-      return;
-    }
-
     setFormLamps((prev) => {
       let changed = false;
       const next = prev.map((lamp) => {
@@ -1800,16 +1804,28 @@ Use Chain-of-Thought reasoning to:
       return sum + (roundedAreaPerLamp * p.q);
     }, 0);
     const totalModules = effectiveTemplatePages.reduce((sum, p) => sum + (Math.max(1, p.moduleCount) * p.q), 0);
+    
     const totalSwitching = effectiveTemplatePages.reduce((sum, p) => {
       const modulesPerLamp = Math.max(1, p.moduleCount || 1);
-      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
+      
+      // ตรวจสอบว่าโคมนี้เป็น RGBW หรือไม่ แล้วเลือกใช้ Watt ให้ถูกต้อง
+      const isRGBW = p.t === 'RGBW' || p.c === 'RGBW';
+      const wattPerModule = isRGBW ? 3.0 : 1.44;
+      
+      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * wattPerModule);
       const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       return sum + (switchingPerLamp * p.q);
     }, 0);
+    
     const advancedPages = effectiveTemplatePages.filter((p) => isAdvancedControl(p.c));
     const advancedControlTotals = advancedPages.reduce((sum, p) => {
       const modulesPerLamp = Math.max(1, p.moduleCount || 1);
-      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
+      
+      // ตรวจสอบว่าโคมนี้เป็น RGBW หรือไม่ สำหรับคิด Driver
+      const isRGBW = p.t === 'RGBW' || p.c === 'RGBW';
+      const wattPerModule = isRGBW ? 3.0 : 1.44;
+      
+      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * wattPerModule);
       const driversPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       const controlMode = getAdvancedControlMode(p.c);
       const driverQtyPerType = driversPerLamp * p.q;
@@ -1835,7 +1851,14 @@ Use Chain-of-Thought reasoning to:
     const dimmableDriverQty = advancedControlTotals.driverQty;
     const dimmableSmartKeypadQty = advancedControlTotals.smartControllerQty;
     const dimmableBridgeQty = advancedControlTotals.bridgeQty;
-    const moduleCost = totalModules * MODULE_PRICE_PER_UNIT;
+    
+    // คำนวณราคา Module โดยเช็คทีละหน้า (RGBW=98 บาท, สีปกติ=24 บาท)
+    const moduleCost = effectiveTemplatePages.reduce((sum, p) => {
+      const isRGBW = p.t === 'RGBW' || p.c === 'RGBW';
+      const price = isRGBW ? 98 : 24;
+      return sum + (Math.max(1, p.moduleCount) * p.q * price);
+    }, 0);
+
     const switchingCost = totalSwitching * SWITCHING_PRICE_PER_UNIT;
     const dimmableDriverCost = advancedControlTotals.driverCost;
     const dimmableSmartKeypadCost = advancedControlTotals.smartControllerCost;
@@ -1882,8 +1905,17 @@ Use Chain-of-Thought reasoning to:
       const isAdvanced = advancedControlMode !== null;
       const totalModulesPerType = Math.max(1, p.moduleCount) * p.q;
       const modulesPerLamp = Math.max(1, p.moduleCount || 1);
-      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * LED_MODULE_WATT);
-      const ledWattPerType = roundUpToInteger(totalModulesPerType * LED_MODULE_WATT);
+
+      // --- ส่วนที่แก้ไขใหม่ ---
+      // เช็คว่าเป็น RGBW หรือไม่ เพื่อดึง Watt และ ราคา ของโมดูลมาใช้ให้ถูกต้อง
+      const isRGBW = p.t === 'RGBW' || p.c === 'RGBW';
+      const wattPerModule = isRGBW ? 3.0 : 1.44; 
+      const pricePerModule = isRGBW ? 98 : 24;
+
+      const ledWattPerLamp = roundUpToInteger(modulesPerLamp * wattPerModule);
+      const ledWattPerType = roundUpToInteger(totalModulesPerType * wattPerModule);
+      // ---------------------
+
       const switchingPerLamp = Math.max(1, Math.ceil(ledWattPerLamp / SWITCHING_POWER_WATT));
       const switchingPerType = switchingPerLamp * p.q;
       const switchingPricePerType = switchingPerType * SWITCHING_PRICE_PER_UNIT;
@@ -1905,7 +1937,10 @@ Use Chain-of-Thought reasoning to:
       const structureCostPerType = pricingSummary.structureCost * areaRatio;
       const installationCostPerType = pricingSummary.installationCost * areaRatio;
       const scaffoldCostPerType = 0;
-      const moduleCostPerType = totalModulesPerType * MODULE_PRICE_PER_UNIT;
+      
+      // นำราคาที่เช็คได้มาคูณแทนค่าคงที่เดิม
+      const moduleCostPerType = totalModulesPerType * pricePerModule;
+      
       const subtotalBeforeGPPerType = fabricCostPerType + structureCostPerType + installationCostPerType + moduleCostPerType + switchingPricePerType + driverPwmCostPerType + wisePlaySmartKeypadCostPerType + wisePlayBridgeCostPerType + commissioningCostPerType;
       const estimatedPricePerType = subtotalBeforeGPPerType / 0.7;
 
@@ -2099,8 +2134,20 @@ Use Chain-of-Thought reasoning to:
       const qty = Number.isFinite(item.qty) ? Math.max(0, Math.round(item.qty)) : 0;
       const areaPerLamp = Number.isFinite(item.areaPerLamp) ? Math.max(0, item.areaPerLamp) : 0;
       const modulesPerLamp = Number.isFinite(item.modulesPerLamp) ? Math.max(1, Math.round(item.modulesPerLamp)) : 1;
-      const wattPerLamp = modulesPerLamp * LED_MODULE_WATT;
-      const wattTotal = wattPerLamp * qty;
+      
+      // ดึง Watt จากค่าที่คำนวณเสร็จแล้วในขั้นตอนก่อนหน้ามาใช้
+      const wattPerLamp = item.ledWattPerLamp;
+      const wattTotal = item.ledWattPerType;
+
+      // ตรวจสอบว่าเป็นโคม RGBW หรือไม่ (วิเคราะห์จากสัดส่วน Watt/Module ที่คำนวณมา)
+      const isRGBW = (wattPerLamp / modulesPerLamp) > 2.2; 
+      
+      // ตั้งค่าราคาและชื่อโคมที่จะแสดงในตาราง BOQ อัตโนมัติ
+      const moduleUnitPrice = isRGBW ? 98 : 24;
+      const moduleDesc = isRGBW 
+        ? 'LED Module SLM08 3.0W RGBW Spacing 15x15 cm.' 
+        : 'LED Module SLM04 1.44W 8xx Spacing 15x15 cm.';
+
       const isAdvanced = item.advancedControlMode !== null;
       const driverUnitRate = isAdvanced ? getDriverUnitPriceByControlMode(item.advancedControlMode) : 0;
       const smartUnitRate = isAdvanced ? getSmartControllerUnitPriceByControlMode(item.advancedControlMode) : 0;
@@ -2145,7 +2192,8 @@ Use Chain-of-Thought reasoning to:
         buildCostRow('Vinyl Translucent Cost', 'Sq.m.', areaPerLamp, 2170, 2),
         buildCostRow('Structure Cost', 'Sq.m.', areaPerLamp, structureUnitRate, 2),
         buildCostRow('Installation Cost', 'Sq.m.', areaPerLamp, 1670, 2),
-        buildCostRow('LED Module SLM04 1.44W 8xx Spacing 15x15 cm.', 'Pcs.', modulesPerLamp, MODULE_PRICE_PER_UNIT, 0),
+        // ใช้ตัวแปร moduleDesc และ moduleUnitPrice แทนค่าคงที่เดิม
+        buildCostRow(moduleDesc, 'Pcs.', modulesPerLamp, moduleUnitPrice, 0),
         buildCostRow('Switching Power Supply LRS-150-12', 'Pcs.', item.switchingPerLamp, SWITCHING_PRICE_PER_UNIT, 0),
         buildCostRow(driverDescription, 'Pcs.', driverQtyPerLamp, driverUnitRate, 0),
         buildCostRow('Wise Play2/ Bridge DALI(50mA) + 0/1-10V(20mA) + Relay(5A)', 'Pc.', bridgeQtyPerLamp, WISE_PLAY_BRIDGE_PRICE_PER_UNIT, 0),
