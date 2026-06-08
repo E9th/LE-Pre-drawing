@@ -2687,9 +2687,11 @@ Use Chain-of-Thought reasoning to:
 
       // --- เพิ่มการสร้างไฟล์ AutoCAD Script ---
       const cadScriptStr = generateAutoCADScript(effectiveTemplatePages, docDetails.projectName);
-      const cadScriptBytes = new TextEncoder().encode('\uFEFF' + cadScriptStr);
-      let cadScriptBinary = '';
-      cadScriptBytes.forEach((b) => { cadScriptBinary += String.fromCharCode(b); });
+      
+      // ลบ \uFEFF ออก เพื่อไม่ให้ AutoCAD งงกับตัวอักษร BOM
+      const cadScriptBytes = new TextEncoder().encode(cadScriptStr); 
+      
+      const cadScriptBinary = Array.from(cadScriptBytes).map(b => String.fromCharCode(b)).join('');
       const cadScriptPayload = {
         mimeType: 'text/plain',
         data: window.btoa(cadScriptBinary),
@@ -2736,7 +2738,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbxrPM1cgGX8c3cRM1daTKGdTNhhVR36BMvKIrcGKxnd6R7AYJzM0uwm4AUFV6FQX3PqPg/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbylJ-RysA6umCn_YTH-jTiVwiGSZAUn2FVt3d_8cUJp4Dw9g6FnN3US205_bHvQRhuR0g/exec";
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
@@ -3103,8 +3105,10 @@ Use Chain-of-Thought reasoning to:
 
       // --- เพิ่มการสร้างไฟล์ AutoCAD Script ---
       const cadScriptStr = generateAutoCADScript(effectiveTemplatePages, docDetails.projectName);
-      const cadScriptBytes = new TextEncoder().encode('\uFEFF' + cadScriptStr);
-      // เปลี่ยนจาก forEach มาใช้ Array.from ป้องกัน TypeScript Error
+      
+      // ลบ \uFEFF ออก เพื่อไม่ให้ AutoCAD งงกับตัวอักษร BOM
+      const cadScriptBytes = new TextEncoder().encode(cadScriptStr); 
+      
       const cadScriptBinary = Array.from(cadScriptBytes).map(b => String.fromCharCode(b)).join('');
       const cadScriptPayload = {
         mimeType: 'text/plain',
@@ -3144,7 +3148,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbxrPM1cgGX8c3cRM1daTKGdTNhhVR36BMvKIrcGKxnd6R7AYJzM0uwm4AUFV6FQX3PqPg/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbylJ-RysA6umCn_YTH-jTiVwiGSZAUn2FVt3d_8cUJp4Dw9g6FnN3US205_bHvQRhuR0g/exec';
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');

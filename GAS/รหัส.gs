@@ -166,6 +166,7 @@ function doPost(e) {
       "ความลึกโครง",
       "ชนิดผ้า",
       "อุณหภูมิแสง",
+      "การควบคุมแสง",         // <-- เพิ่มคอลัมน์ใหม่ตรงนี้
       "Module ต่อโคม (ชิ้น)",
       "Module รวม Type นี้ (ชิ้น)",
       "พื้นที่ต่อโคม (ตร.ม.)",
@@ -331,6 +332,7 @@ function doPost(e) {
         d: lamp.d || "",
         f: lamp.f || "",
         t: lamp.t || "",
+        c: lamp.c || "-",         // <-- รับค่าการควบคุมแสงมาเตรียมไว้
         areaPerLamp: area,
         totalAreaPerType: totalLampArea,
         modulesPerLamp: modulesPerLamp,
@@ -384,6 +386,7 @@ function doPost(e) {
         item.d,
         item.f,
         item.t,
+        item.c,               // <-- นำค่าการควบคุมแสงมาเรียงลงในคอลัมน์ที่เพิ่มใหม่
         item.modulesPerLamp,
         item.totalModulesPerType,
         item.areaPerLamp,
@@ -404,7 +407,7 @@ function doPost(e) {
         "   พื้นที่รวม: " + item.totalAreaPerType.toFixed(2) + " ตร.ม. | Module: " + item.totalModulesPerType + " ชิ้น\n" +
         "   ต้นทุนก่อน GP: " + subtotalPerType.toLocaleString("th-TH", { style: "currency", currency: "THB" }) + "\n" +
         "   ราคาประเมิน /0.7: " + estimatePerType.toLocaleString("th-TH", { style: "currency", currency: "THB" }) + "\n" +
-        "   สูง " + item.h + " ม. | ลึก " + item.d + " | ผ้า " + item.f + " | แสง " + item.t + "\n" +
+        "   สูง " + item.h + " ม. | ลึก " + item.d + " | ผ้า " + item.f + " | แสง " + item.t + " | ระบบ " + item.c + "\n" + // <-- เพิ่มข้อมูลให้โชว์ใน LINE ด้วย
         "   ไฟล์โคม: " + item.lampUpload.url + "\n\n";
     }
 
