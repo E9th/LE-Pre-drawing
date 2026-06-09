@@ -2973,48 +2973,113 @@ Use Chain-of-Thought reasoning to:
     script += `; Project: ${projectName || 'Unknown'}\n`;
     script += "; Generated automatically by Web Planner\n";
     
-    // ปิดการโชว์คำสั่งชั่วคราว เพื่อให้วาดเสร็จในพริบตา
+    // ปิดการโชว์คำสั่ง และเคลียร์ค่าขยะของ AutoCAD
     script += "CMDECHO\n0\n";
+    script += "INSUNITS\n0\n"; // ป้องกัน Block ขยายขนาดตัวเองจนทะลุกรอบ
+    script += "OSMODE\n0\n";   // ปิด Snapping ป้องกันเส้น Dimension วิ่งไปเกาะผิดจุด
     
     let offsetX = 0; 
     
     pages.forEach((page, index) => {
       const isRGBW = page.t === 'RGBW' || page.c === 'RGBW';
       const blockName = isRGBW ? "SLM08_Module" : "SLM04_Module";
-      const modW = isRGBW ? 93 : 44;
-      const modH = isRGBW ? 32 : 38;
+      const displayModuleName = isRGBW ? "SLM08" : "SLM04"; // สำหรับโชว์ใน Text
+      const modW = isRGBW ? 93 : 44.4;
+      const modH = isRGBW ? 32 : 38.0;
       
-      // วาดขอบเขตฝ้าเพดาน (ลบ \n ด้านหน้าออก เพื่อไม่ให้ Enter เบิ้ล)
-      script += `; --- Type ${index + 1}: ${page.name} ---\n`;
-      script += `_RECTANG\n${offsetX},0\n${offsetX + page.bbW},${page.bbH}\n`;
+      // ดึงค่า Spacing ของแต่ละโคมมาโชว์ให้ตรงกับในแบบ
+      const depthSpacing = getSpacingByDepth(page.d || '');
+      const pageSpaceX = depthSpacing?.x ?? spaceX;
+      const pageSpaceY = depthSpacing?.y ?? spaceY;
+
+      const W = page.bbW;
+      const H = page.bbH;
+      const Cx = offsetX + (W / 2);
+      const Cy = H / 2;
+      const maxSize = Math.max(W, H);
       
-      // วางชื่อ Type โคมไฟ (คำสั่ง TEXT ต้องจบด้วย \n\n เสมอ เพื่อออกจากคำสั่ง)
-      const textX = offsetX + (page.bbW / 2);
-      script += `_TEXT\n_J\n_MC\n${textX},-200\n100\n0\n${page.name} (${page.q} SETs)\n\n`;
+      script += `\n; --- Type ${index + 1}: ${page.name} ---\n`;
+      script += `_RECTANG\n${offsetX},0\n${offsetX + W},${H}\n`;
+      
+      // 1. วาดเส้นกึ่งกลาง (Center Lines)
+      script += `_LINE\n${offsetX},${Cy}\n${offsetX + W},${Cy}\n\n`;
+      script += `_LINE\n${Cx},0\n${Cx},${H}\n\n`;
+      
+      // 2. ตั้งค่า Dimension ให้ขนาดแปรผันตามกรอบฝ้า
+      const dimTxt = Math.max(3.0, maxSize * 0.03 * 1.2);
+      const dimAsz = Math.max(2.5, maxSize * 0.03 * 0.8 * 1.2);
+      const dimGap = Math.max(0.8, dimTxt * 0.35);
+      const dimExe = Math.max(1.0, dimTxt * 0.55);
+      const dimExo = Math.max(0.8, dimTxt * 0.4);
+      const outerShift = Math.max(45, maxSize * 0.14);
+      const innerShift = Math.max(14, maxSize * 0.06);
+      
+      script += `DIMTXT\n${dimTxt.toFixed(2)}\nDIMASZ\n${dimAsz.toFixed(2)}\nDIMGAP\n${dimGap.toFixed(2)}\nDIMEXE\n${dimExe.toFixed(2)}\nDIMEXO\n${dimExo.toFixed(2)}\nDIMDEC\n0\n`;
+      
+      // 3. เส้นบอกระยะ กว้าง-ยาว
+      script += `_DIMLINEAR\n${offsetX},${H}\n${offsetX + W},${H}\n_H\n${Cx},${H + outerShift}\n`;
+      script += `_DIMLINEAR\n${offsetX},0\n${offsetX},${H}\n_V\n${offsetX - outerShift},${Cy}\n`;
       
       const translateRegex = /transform="translate\(([-0-9.]+)[,\s]+([-0-9.]+)\)"/g;
       let match;
       let count = 0;
+      
+      let nearestX = null;
+      let nearestY = null;
+      let minDx = Infinity;
+      let minDy = Infinity;
+      
+      let inserts = "";
       
       while ((match = translateRegex.exec(page.svgContent)) !== null) {
         const x = parseFloat(match[1]);
         const y = parseFloat(match[2]);
         
         const cadX = offsetX + x + (modW / 2);
-        const cadY = page.bbH - (y + (modH / 2));
+        const cadY = H - (y + (modH / 2));
         
-        script += `_-INSERT\n${blockName}\n${cadX.toFixed(2)},${cadY.toFixed(2)}\n1\n1\n0\n`;
+        inserts += `_-INSERT\n${blockName}\n${cadX.toFixed(2)},${cadY.toFixed(2)}\n1\n1\n0\n`;
         count++;
+        
+        // หาหลอดไฟดวงที่อยู่ใกล้จุดกึ่งกลางที่สุด (เพื่อทำ Center Offset Dims)
+        const dx = Math.abs(cadX - Cx);
+        const dy = Math.abs(cadY - Cy);
+        if (dx > 1e-6 && dx < minDx) { minDx = dx; nearestX = cadX; }
+        if (dy > 1e-6 && dy < minDy) { minDy = dy; nearestY = cadY; }
+      }
+
+      // 4. วางรายละเอียด Text ด้านล่างกรอบ (เรียงเหมือนในเว็บ)
+      const startY = -(outerShift * 1.2);
+      const lineGap = dimTxt * 1.8;
+      
+      // บรรทัดที่ 1: ชื่อ Type โคมไฟ
+      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY}\n${(dimTxt * 1.2).toFixed(2)}\n0\n${page.name} (${page.q} SETs)\n`;
+      // บรรทัดที่ 2: รุ่นโคม และจำนวน Pcs.
+      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY - lineGap}\n${dimTxt.toFixed(2)}\n0\n${displayModuleName} : ${count} pcs.\n`;
+      // บรรทัดที่ 3: Spacing
+      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY - lineGap * 2}\n${dimTxt.toFixed(2)}\n0\nSpacing : ${pageSpaceX}x${pageSpaceY} mm.\n`;
+      // หมายเหตุ: จัดชิดขวา (TR)
+      script += `_-TEXT\n_J\n_TR\n${offsetX + W},${startY - lineGap * 2}\n${(dimTxt * 0.8).toFixed(2)}\n0\n* All dimensions are in mm\n`;
+      
+      // 5. วาดเส้นบอกระยะ จากเส้นกึ่งกลางไปหาหลอดไฟดวงแรก
+      script += `DIMTXT\n${(dimTxt * 0.8).toFixed(2)}\nDIMASZ\n${(dimAsz * 0.8).toFixed(2)}\n`;
+      if (nearestX !== null) {
+        script += `_DIMLINEAR\n${Cx},${H}\n${nearestX},${H}\n_H\n${(Cx + nearestX)/2},${H + innerShift}\n`;
+      }
+      if (nearestY !== null) {
+        script += `_DIMLINEAR\n${offsetX},${Cy}\n${offsetX},${nearestY}\n_V\n${offsetX - innerShift},${(Cy + nearestY)/2}\n`;
       }
       
+      // 6. วางชุดคำสั่งหลอดไฟต่อท้าย
+      script += inserts;
       script += `; Inserted ${count} modules\n`;
-      offsetX += page.bbW + 1000; 
+      
+      // เผื่อระยะการวาดรูปถัดไปให้กว้างขึ้นอีกนิดป้องกัน Text ชนกัน
+      offsetX += W + 1000 + (outerShift * 2); 
     });
     
-    // จบการทำงานด้วยการ Zoom ขยายให้เห็นทั้งหมด
     script += "_ZOOM\n_E\n"; 
     script += "CMDECHO\n1\n";
-    
     return script;
   };
 
