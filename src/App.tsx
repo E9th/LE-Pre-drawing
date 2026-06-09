@@ -2967,8 +2967,10 @@ Use Chain-of-Thought reasoning to:
     return missing;
   };
 
-  // --- นำฟังก์ชันนี้มาวางเป็นฟังก์ชันส่วนกลาง ---
+  // --- นำฟังก์ชันนี้มาวางทับฟังก์ชันเดิมใน App.tsx ---
   const generateAutoCADScript = (pages: any[], projectName: string): string => {
+    if (!pages || pages.length === 0) return "";
+
     let script = "; AutoCAD Script for L&E Stretch Ceiling\n";
     script += `; Project: ${projectName || 'Unknown'}\n`;
     script += "; Generated automatically by Web Planner\n";
@@ -2977,6 +2979,14 @@ Use Chain-of-Thought reasoning to:
     script += "CMDECHO\n0\n";
     script += "INSUNITS\n0\n"; // ป้องกัน Block ขยายขนาดตัวเองจนทะลุกรอบ
     script += "OSMODE\n0\n";   // ปิด Snapping ป้องกันเส้น Dimension วิ่งไปเกาะผิดจุด
+
+    // --- สร้าง Layer และโหลด Linetype ให้เหมือนระบบวาดแบบมืออาชีพ ---
+    script += `_-LINETYPE\n_L\nCENTER\n\n\n`;
+    script += `_-LAYER\n_M\n"LED_BOUNDARY"\n_C\n8\n\n_L\n"CONTINUOUS"\n\n\n`;
+    script += `_-LAYER\n_M\n"LED_GUIDES"\n_C\n253\n\n_L\n"CENTER"\n\n\n`;
+    script += `_-LAYER\n_M\n"LED_DIMENSION"\n_C\n3\n\n_L\n"CONTINUOUS"\n\n\n`;
+    script += `_-LAYER\n_M\n"LED_MODULES"\n_C\n7\n\n_L\n"CONTINUOUS"\n\n\n`;
+    script += `_-LAYER\n_M\n"LED_TEXT"\n_C\n4\n\n_L\n"CONTINUOUS"\n\n\n`;
     
     let offsetX = 0; 
     
@@ -2988,22 +2998,37 @@ Use Chain-of-Thought reasoning to:
       const modH = isRGBW ? 32 : 38.0;
       
       // ดึงค่า Spacing ของแต่ละโคมมาโชว์ให้ตรงกับในแบบ
-      const depthSpacing = getSpacingByDepth(page.d || '');
-      const pageSpaceX = depthSpacing?.x ?? spaceX;
-      const pageSpaceY = depthSpacing?.y ?? spaceY;
+      let pageSpaceX = 150;
+      let pageSpaceY = 150;
+      try {
+        const depthSpacing = typeof getSpacingByDepth === 'function' ? getSpacingByDepth(page.d || '') : null;
+        pageSpaceX = depthSpacing?.x ?? 150;
+        pageSpaceY = depthSpacing?.y ?? 150;
+      } catch (e) {
+        console.warn("Fallback spacing used in AutoCAD Script");
+      }
 
-      const W = page.bbW;
-      const H = page.bbH;
+      const W = page.bbW || 0;
+      const H = page.bbH || 0;
       const Cx = offsetX + (W / 2);
       const Cy = H / 2;
       const maxSize = Math.max(W, H);
       
       script += `\n; --- Type ${index + 1}: ${page.name} ---\n`;
+
+      // 0. วาดกรอบสี่เหลี่ยมรอบนอก
+      script += `_-LAYER\n_S\n"LED_BOUNDARY"\n\n`;
       script += `_RECTANG\n${offsetX},0\n${offsetX + W},${H}\n`;
       
       // 1. วาดเส้นกึ่งกลาง (Center Lines)
+      script += `_-LAYER\n_S\n"LED_GUIDES"\n\n`;
+      const ltScale = Math.max(0.2, Math.min(15.0, maxSize * 0.0025));
+      script += `_CELTSCALE\n${ltScale.toFixed(4)}\n`; // ปรับความถี่เส้นประให้แปรผันตามขนาดฝ้า
+      script += `_CELTYPE\nCENTER\n`;
       script += `_LINE\n${offsetX},${Cy}\n${offsetX + W},${Cy}\n\n`;
       script += `_LINE\n${Cx},0\n${Cx},${H}\n\n`;
+      script += `_CELTYPE\nBYLAYER\n`;
+      script += `_CELTSCALE\n1\n`; // คืนค่าสเกล
       
       // 2. ตั้งค่า Dimension ให้ขนาดแปรผันตามกรอบฝ้า
       const dimTxt = Math.max(3.0, maxSize * 0.03 * 1.2);
@@ -3014,6 +3039,7 @@ Use Chain-of-Thought reasoning to:
       const outerShift = Math.max(45, maxSize * 0.14);
       const innerShift = Math.max(14, maxSize * 0.06);
       
+      script += `_-LAYER\n_S\n"LED_DIMENSION"\n\n`;
       script += `DIMTXT\n${dimTxt.toFixed(2)}\nDIMASZ\n${dimAsz.toFixed(2)}\nDIMGAP\n${dimGap.toFixed(2)}\nDIMEXE\n${dimExe.toFixed(2)}\nDIMEXO\n${dimExo.toFixed(2)}\nDIMDEC\n0\n`;
       
       // 3. เส้นบอกระยะ กว้าง-ยาว
@@ -3024,36 +3050,40 @@ Use Chain-of-Thought reasoning to:
       let match;
       let count = 0;
       
-      let nearestX = null;
-      let nearestY = null;
+      let nearestX: number | null = null;
+      let nearestY: number | null = null;
       let minDx = Infinity;
       let minDy = Infinity;
       
       let inserts = "";
       
-      while ((match = translateRegex.exec(page.svgContent)) !== null) {
-        const x = parseFloat(match[1]);
-        const y = parseFloat(match[2]);
-        
-        const cadX = offsetX + x + (modW / 2);
-        const cadY = H - (y + (modH / 2));
-        
-        inserts += `_-INSERT\n${blockName}\n${cadX.toFixed(2)},${cadY.toFixed(2)}\n1\n1\n0\n`;
-        count++;
-        
-        // หาหลอดไฟดวงที่อยู่ใกล้จุดกึ่งกลางที่สุด (เพื่อทำ Center Offset Dims)
-        const dx = Math.abs(cadX - Cx);
-        const dy = Math.abs(cadY - Cy);
-        if (dx > 1e-6 && dx < minDx) { minDx = dx; nearestX = cadX; }
-        if (dy > 1e-6 && dy < minDy) { minDy = dy; nearestY = cadY; }
+      if (page.svgContent) {
+        while ((match = translateRegex.exec(page.svgContent)) !== null) {
+          const x = parseFloat(match[1]);
+          const y = parseFloat(match[2]);
+          
+          const cadX = offsetX + x + (modW / 2);
+          const cadY = H - (y + (modH / 2));
+          
+          inserts += `_-INSERT\n${blockName}\n${cadX.toFixed(2)},${cadY.toFixed(2)}\n1\n1\n0\n`;
+          count++;
+          
+          // หาหลอดไฟดวงที่อยู่ใกล้จุดกึ่งกลางที่สุด (เพื่อทำ Center Offset Dims)
+          const dx = Math.abs(cadX - Cx);
+          const dy = Math.abs(cadY - Cy);
+          if (dx > 1e-6 && dx < minDx) { minDx = dx; nearestX = cadX; }
+          if (dy > 1e-6 && dy < minDy) { minDy = dy; nearestY = cadY; }
+        }
       }
 
       // 4. วางรายละเอียด Text ด้านล่างกรอบ (เรียงเหมือนในเว็บ)
+      script += `_-LAYER\n_S\n"LED_TEXT"\n\n`;
       const startY = -(outerShift * 1.2);
       const lineGap = dimTxt * 1.8;
+      const qtySet = page.q ? ` (${page.q} SETs)` : ''; // ดึง QTY SETs ถ้ามี
       
       // บรรทัดที่ 1: ชื่อ Type โคมไฟ
-      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY}\n${(dimTxt * 1.2).toFixed(2)}\n0\n${page.name} (${page.q} SETs)\n`;
+      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY}\n${(dimTxt * 1.2).toFixed(2)}\n0\n${page.name || 'Unknown'}${qtySet}\n`;
       // บรรทัดที่ 2: รุ่นโคม และจำนวน Pcs.
       script += `_-TEXT\n_J\n_TL\n${offsetX},${startY - lineGap}\n${dimTxt.toFixed(2)}\n0\n${displayModuleName} : ${count} pcs.\n`;
       // บรรทัดที่ 3: Spacing
@@ -3062,6 +3092,7 @@ Use Chain-of-Thought reasoning to:
       script += `_-TEXT\n_J\n_TR\n${offsetX + W},${startY - lineGap * 2}\n${(dimTxt * 0.8).toFixed(2)}\n0\n* All dimensions are in mm\n`;
       
       // 5. วาดเส้นบอกระยะ จากเส้นกึ่งกลางไปหาหลอดไฟดวงแรก
+      script += `_-LAYER\n_S\n"LED_DIMENSION"\n\n`;
       script += `DIMTXT\n${(dimTxt * 0.8).toFixed(2)}\nDIMASZ\n${(dimAsz * 0.8).toFixed(2)}\n`;
       if (nearestX !== null) {
         script += `_DIMLINEAR\n${Cx},${H}\n${nearestX},${H}\n_H\n${(Cx + nearestX)/2},${H + innerShift}\n`;
@@ -3071,6 +3102,7 @@ Use Chain-of-Thought reasoning to:
       }
       
       // 6. วางชุดคำสั่งหลอดไฟต่อท้าย
+      script += `_-LAYER\n_S\n"LED_MODULES"\n\n`;
       script += inserts;
       script += `; Inserted ${count} modules\n`;
       
@@ -3078,6 +3110,7 @@ Use Chain-of-Thought reasoning to:
       offsetX += W + 1000 + (outerShift * 2); 
     });
     
+    script += `_-LAYER\n_S\n"0"\n\n`; // คืน Layer กลับไปเป็นเบอร์ 0 ให้ผู้ใช้
     script += "_ZOOM\n_E\n"; 
     script += "CMDECHO\n1\n";
     return script;
