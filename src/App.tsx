@@ -2729,7 +2729,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbylJ-RysA6umCn_YTH-jTiVwiGSZAUn2FVt3d_8cUJp4Dw9g6FnN3US205_bHvQRhuR0g/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbxIUw2u9XFWJnLVRnBlgzi_9kM18D5-KQ9gHpg6ho21GsGSoaMJcQLKcPjVVIfqyQF_6A/exec";
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
@@ -3141,7 +3141,7 @@ Use Chain-of-Thought reasoning to:
       const cadX = offsetX + x + (modW / 2);
       const cadY = H - (y + (modH / 2));
 
-      inserts += `_-INSERT\n${blockName}\n${formatNumber(cadX)},${formatNumber(cadY)}\n1\n1\n0\n\n`;
+      inserts += `_-INSERT\n${blockName}\n${formatNumber(cadX)},${formatNumber(cadY)}\n1\n1\n0\n`;
       count += 1;
 
       const dx = Math.abs(cadX - Cx);
@@ -3299,7 +3299,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbylJ-RysA6umCn_YTH-jTiVwiGSZAUn2FVt3d_8cUJp4Dw9g6FnN3US205_bHvQRhuR0g/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbxIUw2u9XFWJnLVRnBlgzi_9kM18D5-KQ9gHpg6ho21GsGSoaMJcQLKcPjVVIfqyQF_6A/exec';
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');

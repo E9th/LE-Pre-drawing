@@ -226,13 +226,6 @@ function doPost(e) {
       (data.projectName || "BOQ") + "_BOQ.pdf"
     );
 
-    // --- เพิ่มการ Upload ไฟล์ AutoCAD Script ---
-    var cadScriptUpload = uploadBase64File_(
-      folder,
-      data.cadScriptFile,
-      (data.projectName || "Project") + "_AutoCAD.scr"
-    );
-
     filesSheet.appendRow([
       timestamp,
       submissionId,
@@ -275,20 +268,38 @@ function doPost(e) {
       pricingPdfUpload.error
     ]);
 
-    // --- เพิ่มการบันทึกประวัติไฟล์ AutoCAD ลงชีตไฟล์แนบ ---
-    filesSheet.appendRow([
-      timestamp,
-      submissionId,
-      "AutoCAD Script",
-      "",
-      "",
-      cadScriptUpload.fileName,
-      cadScriptUpload.mimeType,
-      cadScriptUpload.sizeBytes,
-      cadScriptUpload.status,
-      cadScriptUpload.url,
-      cadScriptUpload.error
-    ]);
+    // --- เพิ่มการ Upload ไฟล์ AutoCAD Script แบบแยก 1 โคมต่อ 1 ไฟล์ ---
+    var cadScriptFiles = Array.isArray(data.cadScriptFiles) ? data.cadScriptFiles : [];
+    if (cadScriptFiles.length === 0 && data.cadScriptFile) {
+      cadScriptFiles = [data.cadScriptFile];
+    }
+    var cadScriptUploads = [];
+
+    for (var c = 0; c < cadScriptFiles.length; c++) {
+      var cadScriptInput = cadScriptFiles[c];
+      var cadScriptDisplayName = cadScriptInput && cadScriptInput.name ? cadScriptInput.name : "";
+      var cadScriptUpload = uploadBase64File_(
+        folder,
+        cadScriptInput,
+        (data.projectName || "Project") + "_AutoCAD_" + (c + 1) + ".scr"
+      );
+
+      filesSheet.appendRow([
+        timestamp,
+        submissionId,
+        "AutoCAD Script",
+        c + 1,
+        cadScriptDisplayName,
+        cadScriptUpload.fileName,
+        cadScriptUpload.mimeType,
+        cadScriptUpload.sizeBytes,
+        cadScriptUpload.status,
+        cadScriptUpload.url,
+        cadScriptUpload.error
+      ]);
+
+      cadScriptUploads.push(cadScriptUpload);
+    }
 
     for (var i = 0; i < lamps.length; i++) {
       var lamp = lamps[i] || {};
@@ -434,8 +445,8 @@ function doPost(e) {
       csvUpload.status,
       pricingPdfUpload.url,
       pricingPdfUpload.status,
-      cadScriptUpload.url,      // <-- บันทึก URL ของไฟล์ AutoCAD ลงชีตสรุปรายการ
-      cadScriptUpload.status    // <-- บันทึกสถานะไฟล์ AutoCAD ลงชีตสรุปรายการ
+      cadScriptUploads.length ? cadScriptUploads.map(function (item) { return item.url; }).join("\n") : "-",
+      cadScriptUploads.length ? cadScriptUploads.map(function (item) { return item.status; }).join("\n") : "-"
     ]);
 
     var formattedPrice = estimatedPrice.toLocaleString("th-TH", { style: "currency", currency: "THB" });
@@ -454,7 +465,10 @@ function doPost(e) {
       "📄 Template Drawing: " + templateUpload.url + "\n" +
       "🧾 BOQ CSV: " + csvUpload.url + "\n" +
       "📑 BOQ PDF: " + pricingPdfUpload.url + "\n" +
-      "📐 AutoCAD Script: " + cadScriptUpload.url + "\n" +  // <-- เพิ่มลิงก์ไฟล์ .scr ลงใน LINE
+      "📐 AutoCAD Script:\n" +
+      (cadScriptUploads.length ? cadScriptUploads.map(function (item, idx) {
+        return "  " + (idx + 1) + ". " + item.url;
+      }).join("\n") : "  -") + "\n" +
       "────────────────\n" +
       "📌 สรุปรวม\n" +
       "• พื้นที่รวม: " + formattedArea + " ตร.ม.\n" +
