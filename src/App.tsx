@@ -2686,17 +2686,7 @@ Use Chain-of-Thought reasoning to:
       }
 
       // --- เพิ่มการสร้างไฟล์ AutoCAD Script ---
-      const cadScriptStr = generateAutoCADScript(effectiveTemplatePages, docDetails.projectName);
-      
-      // ลบ \uFEFF ออก เพื่อไม่ให้ AutoCAD งงกับตัวอักษร BOM
-      const cadScriptBytes = new TextEncoder().encode(cadScriptStr); 
-      
-      const cadScriptBinary = Array.from(cadScriptBytes).map(b => String.fromCharCode(b)).join('');
-      const cadScriptPayload = {
-        mimeType: 'text/plain',
-        data: window.btoa(cadScriptBinary),
-        name: `${docDetails.projectName || 'Project'}_AutoCAD.scr`
-      };
+      const cadScriptFilesPayload = generateAutoCADScripts(effectiveTemplatePages, docDetails.projectName);
 
       // เตรียมข้อมูลยิง API
       const payload = {
@@ -2706,7 +2696,8 @@ Use Chain-of-Thought reasoning to:
         structure: structure,
         templateFile: templateFilePayload,
         pricingPdfFile: pricingPdfFilePayload,
-        cadScriptFile: cadScriptPayload, // <--- เพิ่มไฟล์ .scr เข้าไปตรงนี้
+        cadScriptFile: cadScriptFilesPayload[0] || null,
+        cadScriptFiles: cadScriptFilesPayload,
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
@@ -2967,152 +2958,224 @@ Use Chain-of-Thought reasoning to:
     return missing;
   };
 
-  // --- นำฟังก์ชันนี้มาวางทับฟังก์ชันเดิมใน App.tsx ---
-  const generateAutoCADScript = (pages: any[], projectName: string): string => {
-    if (!pages || pages.length === 0) return "";
+  const encodeScrPayload = (script: string, fileName: string) => {
+    const scriptBytes = new TextEncoder().encode(script);
+    const scriptBinary = Array.from(scriptBytes).map((byte) => String.fromCharCode(byte)).join('');
+    return {
+      mimeType: 'text/plain',
+      data: window.btoa(scriptBinary),
+      name: fileName,
+    };
+  };
 
-    let script = "; AutoCAD Script for L&E Stretch Ceiling\n";
-    script += `; Project: ${projectName || 'Unknown'}\n`;
-    script += "; Generated automatically by Web Planner\n";
-    
-    // ปิดการโชว์คำสั่ง และเคลียร์ค่าขยะของ AutoCAD
-    script += "CMDECHO\n0\n";
-    script += "INSUNITS\n0\n"; // ป้องกัน Block ขยายขนาดตัวเองจนทะลุกรอบ
-    script += "OSMODE\n0\n";   // ปิด Snapping ป้องกันเส้น Dimension วิ่งไปเกาะผิดจุด
+  // --- นำฟังก์ชันนี้มาวางเป็นฟังก์ชันส่วนกลาง ---
+  const generateAutoCADScripts = (pages: any[], projectName: string): Array<{ mimeType: string; data: string; name: string }> => {
+    const scripts: Array<{ mimeType: string; data: string; name: string }> = [];
 
-    // --- สร้าง Layer และโหลด Linetype ให้เหมือนระบบวาดแบบมืออาชีพ ---
-    script += `_-LINETYPE\n_L\nCENTER\n\n\n`;
-    script += `_-LAYER\n_M\n"LED_BOUNDARY"\n_C\n8\n\n_L\n"CONTINUOUS"\n\n\n`;
-    script += `_-LAYER\n_M\n"LED_GUIDES"\n_C\n253\n\n_L\n"CENTER"\n\n\n`;
-    script += `_-LAYER\n_M\n"LED_DIMENSION"\n_C\n3\n\n_L\n"CONTINUOUS"\n\n\n`;
-    script += `_-LAYER\n_M\n"LED_MODULES"\n_C\n7\n\n_L\n"CONTINUOUS"\n\n\n`;
-    script += `_-LAYER\n_M\n"LED_TEXT"\n_C\n4\n\n_L\n"CONTINUOUS"\n\n\n`;
-    
-    let offsetX = 0; 
-    
     pages.forEach((page, index) => {
-      const isRGBW = page.t === 'RGBW' || page.c === 'RGBW';
-      const blockName = isRGBW ? "SLM08_Module" : "SLM04_Module";
-      const displayModuleName = isRGBW ? "SLM08" : "SLM04"; // สำหรับโชว์ใน Text
-      const modW = isRGBW ? 93 : 44.4;
-      const modH = isRGBW ? 32 : 38.0;
-      
-      // ดึงค่า Spacing ของแต่ละโคมมาโชว์ให้ตรงกับในแบบ
-      let pageSpaceX = 150;
-      let pageSpaceY = 150;
-      try {
-        const depthSpacing = typeof getSpacingByDepth === 'function' ? getSpacingByDepth(page.d || '') : null;
-        pageSpaceX = depthSpacing?.x ?? 150;
-        pageSpaceY = depthSpacing?.y ?? 150;
-      } catch (e) {
-        console.warn("Fallback spacing used in AutoCAD Script");
-      }
-
-      const W = page.bbW || 0;
-      const H = page.bbH || 0;
-      const Cx = offsetX + (W / 2);
-      const Cy = H / 2;
-      const maxSize = Math.max(W, H);
-      
-      script += `\n; --- Type ${index + 1}: ${page.name} ---\n`;
-
-      // 0. วาดกรอบสี่เหลี่ยมรอบนอก
-      script += `_-LAYER\n_S\n"LED_BOUNDARY"\n\n`;
-      script += `_RECTANG\n${offsetX},0\n${offsetX + W},${H}\n`;
-      
-      // 1. วาดเส้นกึ่งกลาง (Center Lines)
-      script += `_-LAYER\n_S\n"LED_GUIDES"\n\n`;
-      const ltScale = Math.max(0.2, Math.min(15.0, maxSize * 0.0025));
-      script += `_CELTSCALE\n${ltScale.toFixed(4)}\n`; // ปรับความถี่เส้นประให้แปรผันตามขนาดฝ้า
-      script += `_CELTYPE\nCENTER\n`;
-      script += `_LINE\n${offsetX},${Cy}\n${offsetX + W},${Cy}\n\n`;
-      script += `_LINE\n${Cx},0\n${Cx},${H}\n\n`;
-      script += `_CELTYPE\nBYLAYER\n`;
-      script += `_CELTSCALE\n1\n`; // คืนค่าสเกล
-      
-      // 2. ตั้งค่า Dimension ให้ขนาดแปรผันตามกรอบฝ้า
-      const dimTxt = Math.max(3.0, maxSize * 0.03 * 1.2);
-      const dimAsz = Math.max(2.5, maxSize * 0.03 * 0.8 * 1.2);
-      const dimGap = Math.max(0.8, dimTxt * 0.35);
-      const dimExe = Math.max(1.0, dimTxt * 0.55);
-      const dimExo = Math.max(0.8, dimTxt * 0.4);
-      const outerShift = Math.max(45, maxSize * 0.14);
-      const innerShift = Math.max(14, maxSize * 0.06);
-      
-      script += `_-LAYER\n_S\n"LED_DIMENSION"\n\n`;
-      script += `DIMTXT\n${dimTxt.toFixed(2)}\nDIMASZ\n${dimAsz.toFixed(2)}\nDIMGAP\n${dimGap.toFixed(2)}\nDIMEXE\n${dimExe.toFixed(2)}\nDIMEXO\n${dimExo.toFixed(2)}\nDIMDEC\n0\n`;
-      
-      // 3. เส้นบอกระยะ กว้าง-ยาว
-      script += `_DIMLINEAR\n${offsetX},${H}\n${offsetX + W},${H}\n_H\n${Cx},${H + outerShift}\n`;
-      script += `_DIMLINEAR\n${offsetX},0\n${offsetX},${H}\n_V\n${offsetX - outerShift},${Cy}\n`;
-      
-      const translateRegex = /transform="translate\(([-0-9.]+)[,\s]+([-0-9.]+)\)"/g;
-      let match;
-      let count = 0;
-      
-      let nearestX: number | null = null;
-      let nearestY: number | null = null;
-      let minDx = Infinity;
-      let minDy = Infinity;
-      
-      let inserts = "";
-      
-      if (page.svgContent) {
-        while ((match = translateRegex.exec(page.svgContent)) !== null) {
-          const x = parseFloat(match[1]);
-          const y = parseFloat(match[2]);
-          
-          const cadX = offsetX + x + (modW / 2);
-          const cadY = H - (y + (modH / 2));
-          
-          inserts += `_-INSERT\n${blockName}\n${cadX.toFixed(2)},${cadY.toFixed(2)}\n1\n1\n0\n`;
-          count++;
-          
-          // หาหลอดไฟดวงที่อยู่ใกล้จุดกึ่งกลางที่สุด (เพื่อทำ Center Offset Dims)
-          const dx = Math.abs(cadX - Cx);
-          const dy = Math.abs(cadY - Cy);
-          if (dx > 1e-6 && dx < minDx) { minDx = dx; nearestX = cadX; }
-          if (dy > 1e-6 && dy < minDy) { minDy = dy; nearestY = cadY; }
-        }
-      }
-
-      // 4. วางรายละเอียด Text ด้านล่างกรอบ (เรียงเหมือนในเว็บ)
-      script += `_-LAYER\n_S\n"LED_TEXT"\n\n`;
-      const startY = -(outerShift * 1.2);
-      const lineGap = dimTxt * 1.8;
-      const qtySet = page.q ? ` (${page.q} SETs)` : ''; // ดึง QTY SETs ถ้ามี
-      
-      // บรรทัดที่ 1: ชื่อ Type โคมไฟ
-      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY}\n${(dimTxt * 1.2).toFixed(2)}\n0\n${page.name || 'Unknown'}${qtySet}\n`;
-      // บรรทัดที่ 2: รุ่นโคม และจำนวน Pcs.
-      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY - lineGap}\n${dimTxt.toFixed(2)}\n0\n${displayModuleName} : ${count} pcs.\n`;
-      // บรรทัดที่ 3: Spacing
-      script += `_-TEXT\n_J\n_TL\n${offsetX},${startY - lineGap * 2}\n${dimTxt.toFixed(2)}\n0\nSpacing : ${pageSpaceX}x${pageSpaceY} mm.\n`;
-      // หมายเหตุ: จัดชิดขวา (TR)
-      script += `_-TEXT\n_J\n_TR\n${offsetX + W},${startY - lineGap * 2}\n${(dimTxt * 0.8).toFixed(2)}\n0\n* All dimensions are in mm\n`;
-      
-      // 5. วาดเส้นบอกระยะ จากเส้นกึ่งกลางไปหาหลอดไฟดวงแรก
-      script += `_-LAYER\n_S\n"LED_DIMENSION"\n\n`;
-      script += `DIMTXT\n${(dimTxt * 0.8).toFixed(2)}\nDIMASZ\n${(dimAsz * 0.8).toFixed(2)}\n`;
-      if (nearestX !== null) {
-        script += `_DIMLINEAR\n${Cx},${H}\n${nearestX},${H}\n_H\n${(Cx + nearestX)/2},${H + innerShift}\n`;
-      }
-      if (nearestY !== null) {
-        script += `_DIMLINEAR\n${offsetX},${Cy}\n${offsetX},${nearestY}\n_V\n${offsetX - innerShift},${(Cy + nearestY)/2}\n`;
-      }
-      
-      // 6. วางชุดคำสั่งหลอดไฟต่อท้าย
-      script += `_-LAYER\n_S\n"LED_MODULES"\n\n`;
-      script += inserts;
-      script += `; Inserted ${count} modules\n`;
-      
-      // เผื่อระยะการวาดรูปถัดไปให้กว้างขึ้นอีกนิดป้องกัน Text ชนกัน
-      offsetX += W + 1000 + (outerShift * 2); 
+      const script = generateAutoCADScriptForPage(page, index, projectName);
+      const safePageName = String(page?.name || `Lamp_${index + 1}`).replace(/[\\/:*?"<>|]+/g, '_').trim() || `Lamp_${index + 1}`;
+      scripts.push(encodeScrPayload(script, `${projectName || 'Project'}_${safePageName}_AutoCAD.scr`));
     });
-    
-    script += `_-LAYER\n_S\n"0"\n\n`; // คืน Layer กลับไปเป็นเบอร์ 0 ให้ผู้ใช้
-    script += "_ZOOM\n_E\n"; 
-    script += "CMDECHO\n1\n";
+
+    return scripts;
+  };
+
+  const generateAutoCADScriptForPage = (page: any, index: number, projectName: string): string => {
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+    const formatNumber = (value: number) => Number(value.toFixed(2)).toString();
+
+    const inferShapeKind = (page: any): string => {
+      const match = String(page?.name || '').match(/\(([^)]+)\)\s*$/);
+      return String(match?.[1] || 'rectangle').toLowerCase();
+    };
+
+    const extractShapePath = (svgContent: string): string => {
+      const match = String(svgContent || '').match(/<path d="([^"]+)" fill="white" stroke="#525252" stroke-width="[^"]+"(?: vector-effect="non-scaling-stroke")? \/>/);
+      return match?.[1] || '';
+    };
+
+    const parseLineSegments = (shapePath: string): Array<Array<{ x: number; y: number }>> => {
+      const segments = shapePath.match(/M[\s\S]*?(?=\sM\s|$)/g) || [];
+      return segments
+        .map((segment) => [...segment.matchAll(/[ML]\s*([-0-9.]+)\s+([-0-9.]+)/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) })))
+        .filter((points) => points.length >= 2);
+    };
+
+    const emitPolyline = (points: Array<{ x: number; y: number }>, offsetX: number, height: number, close = true): string => {
+      if (points.length < 2) return '';
+      let block = '_PLINE\n';
+      points.forEach((pt) => {
+        block += `${formatNumber(offsetX + pt.x)},${formatNumber(height - pt.y)}\n`;
+      });
+      if (close) block += 'C\n';
+      return block;
+    };
+
+    const emitArcApprox = (
+      centerX: number,
+      centerY: number,
+      radiusX: number,
+      radiusY: number,
+      startAngle = 0,
+      endAngle = 360,
+      segments = 48,
+      close = true,
+    ): string => {
+      const points: Array<{ x: number; y: number }> = [];
+      const total = Math.max(segments, 12);
+      for (let i = 0; i <= total; i += 1) {
+        const angle = ((startAngle + ((endAngle - startAngle) * i) / total) * Math.PI) / 180;
+        points.push({
+          x: centerX + Math.cos(angle) * radiusX,
+          y: centerY + Math.sin(angle) * radiusY,
+        });
+      }
+      let block = '_PLINE\n';
+      points.forEach((pt) => {
+        block += `${formatNumber(pt.x)},${formatNumber(pt.y)}\n`;
+      });
+      if (close) block += 'C\n';
+      return block;
+    };
+
+    const emitShapeOutline = (shapeKind: string, page: any, offsetX: number, width: number, height: number): string => {
+      const shapePath = extractShapePath(page.svgContent);
+      const lineSegments = parseLineSegments(shapePath);
+
+      if (shapeKind === 'rectangle') {
+        return `_RECTANG\n${formatNumber(offsetX)},0\n${formatNumber(offsetX + width)},${formatNumber(height)}\n`;
+      }
+
+      if (['triangle', 'polygon', 'hexagon', 'octagon', 'u-shape', 'c-shape', 't-shape', 'hollow-rect', 'custom', 'text'].includes(shapeKind) && lineSegments.length > 0) {
+        return lineSegments.map((segment) => emitPolyline(segment, offsetX, height, true)).join('');
+      }
+
+      if (shapeKind === 'circle') {
+        return emitArcApprox(offsetX + width / 2, height / 2, width / 2, height / 2, 0, 360, 64, true);
+      }
+
+      if (shapeKind === 'ellipse') {
+        return emitArcApprox(offsetX + width / 2, height / 2, width / 2, height / 2, 0, 360, 64, true);
+      }
+
+      if (shapeKind === 'semicircle') {
+        return emitArcApprox(offsetX + width / 2, height / 2, width / 2, height / 2, 180, 360, 32, true);
+      }
+
+      if (shapeKind === 'donut') {
+        const outer = emitArcApprox(offsetX + width / 2, height / 2, width / 2, height / 2, 0, 360, 64, true);
+        const inner = emitArcApprox(offsetX + width / 2, height / 2, width * 0.25, height * 0.25, 0, 360, 64, true);
+        return outer + inner;
+      }
+
+      return `_RECTANG\n${formatNumber(offsetX)},0\n${formatNumber(offsetX + width)},${formatNumber(height)}\n`;
+    };
+
+    let script = '; AutoCAD Script for L&E Stretch Ceiling\n';
+    script += `; Project: ${projectName || 'Unknown'}\n`;
+    script += '; Generated automatically by Web Planner\n';
+    script += '_CMDECHO\n0\n';
+    script += '_INSUNITS\n0\n';
+    script += '_OSMODE\n0\n';
+    const isRGBW = page.t === 'RGBW' || page.c === 'RGBW';
+    const blockName = isRGBW ? 'SLM08_Module' : 'SLM04_Module';
+    const displayModuleName = isRGBW ? 'SLM08' : 'SLM04';
+    const modW = isRGBW ? 93 : 44.4;
+    const modH = isRGBW ? 32 : 38.0;
+
+    const depthSpacing = getSpacingByDepth(page.d || '');
+    const pageSpaceX = depthSpacing?.x ?? spaceX;
+    const pageSpaceY = depthSpacing?.y ?? spaceY;
+
+    const offsetX = 0;
+    const W = page.bbW;
+    const H = page.bbH;
+    const Cx = offsetX + (W / 2);
+    const Cy = H / 2;
+    const maxSize = Math.max(W, H);
+    const ltScale = clamp(maxSize * 0.0025, 0.2, 15.0);
+    const outerShift = clamp(maxSize * 0.14, 45.0, 140.0);
+    const innerShift = clamp(maxSize * 0.06, 14.0, 42.0);
+    const dimTxtBase = clamp(maxSize * 0.03, 2.5, 40.0);
+    const dimAszBase = clamp(dimTxtBase * 0.8, 2.0, 30.0);
+    const dimTxt = clamp(dimTxtBase * 1.2, 3.0, 48.0);
+    const dimAsz = clamp(dimAszBase * 1.2, 2.5, 36.0);
+    const dimGap = clamp(dimTxt * 0.35, 0.8, 12.0);
+    const dimExe = clamp(dimTxt * 0.55, 1.0, 16.0);
+    const dimExo = clamp(dimTxt * 0.4, 0.8, 12.0);
+    const dimTxtInner = clamp(dimTxt * 0.95, 2.5, 38.0);
+    const dimAszInner = clamp(dimAsz * 0.95, 2.0, 28.0);
+    const dimGapInner = clamp(dimTxtInner * 0.3, 0.6, 8.0);
+    const dimExeInner = clamp(dimTxtInner * 0.45, 0.8, 12.0);
+    const dimExoInner = clamp(dimTxtInner * 0.35, 0.6, 9.0);
+    const shapeKind = inferShapeKind(page);
+    const isRectangularShape = shapeKind === 'rectangle';
+
+    script += `; --- Type ${index + 1}: ${page.name} ---\n`;
+    script += emitShapeOutline(shapeKind, page, offsetX, W, H);
+
+    if (!isRectangularShape) {
+      script += `_RECTANG\n${formatNumber(offsetX)},0\n${formatNumber(offsetX + W)},${formatNumber(H)}\n`;
+    }
+
+    script += `_LINE\n${formatNumber(offsetX)},${formatNumber(Cy)}\n${formatNumber(offsetX + W)},${formatNumber(Cy)}\n\n`;
+    script += `_LINE\n${formatNumber(Cx)},0\n${formatNumber(Cx)},${formatNumber(H)}\n\n`;
+
+    script += `DIMTXT\n${formatNumber(dimTxt)}\nDIMASZ\n${formatNumber(dimAsz)}\nDIMGAP\n${formatNumber(dimGap)}\nDIMEXE\n${formatNumber(dimExe)}\nDIMEXO\n${formatNumber(dimExo)}\nDIMDEC\n0\n`;
+    script += `_DIMLINEAR\n${formatNumber(offsetX)},${formatNumber(H)}\n${formatNumber(offsetX + W)},${formatNumber(H)}\n_H\n${formatNumber(Cx)},${formatNumber(H + outerShift)}\n`;
+    script += `_DIMLINEAR\n${formatNumber(offsetX)},0\n${formatNumber(offsetX)},${formatNumber(H)}\n_V\n${formatNumber(offsetX - outerShift)},${formatNumber(Cy)}\n`;
+
+    const translateRegex = /transform="translate\(([-0-9.]+)[,\s]+([-0-9.]+)\)"/g;
+    let match: RegExpExecArray | null;
+    let count = 0;
+    let nearestX: number | null = null;
+    let nearestY: number | null = null;
+    let minDx = Infinity;
+    let minDy = Infinity;
+    let inserts = '';
+
+    while ((match = translateRegex.exec(page.svgContent)) !== null) {
+      const x = parseFloat(match[1]);
+      const y = parseFloat(match[2]);
+      const cadX = offsetX + x + (modW / 2);
+      const cadY = H - (y + (modH / 2));
+
+      inserts += `_-INSERT\n${blockName}\n${formatNumber(cadX)},${formatNumber(cadY)}\n1\n1\n0\n\n`;
+      count += 1;
+
+      const dx = Math.abs(cadX - Cx);
+      const dy = Math.abs(cadY - Cy);
+      if (dx > 1e-6 && dx < minDx) {
+        minDx = dx;
+        nearestX = cadX;
+      }
+      if (dy > 1e-6 && dy < minDy) {
+        minDy = dy;
+        nearestY = cadY;
+      }
+    }
+
+    const startY = -(outerShift * 1.2);
+    const lineGap = dimTxt * 1.62;
+
+    script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY)}\n${formatNumber(dimTxt * 1.2)}\n0\n${page.name} (${page.q} SETs)\n`;
+    script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY - lineGap)}\n${formatNumber(dimTxt)}\n0\n${displayModuleName} : ${count} pcs.\n`;
+    script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY - lineGap * 2)}\n${formatNumber(dimTxt)}\n0\nSpacing : ${pageSpaceX}x${pageSpaceY} mm.\n`;
+    script += `_-TEXT\n_J\n_TR\n${formatNumber(offsetX + W)},${formatNumber(startY - lineGap * 2)}\n${formatNumber(dimTxt * 0.8)}\n0\n* All dimensions are in mm\n`;
+
+    script += `DIMTXT\n${formatNumber(dimTxtInner)}\nDIMASZ\n${formatNumber(dimAszInner)}\nDIMGAP\n${formatNumber(dimGapInner)}\nDIMEXE\n${formatNumber(dimExeInner)}\nDIMEXO\n${formatNumber(dimExoInner)}\nDIMDEC\n0\n`;
+    if (nearestX !== null) {
+      script += `_DIMLINEAR\n${formatNumber(Cx)},${formatNumber(H)}\n${formatNumber(nearestX)},${formatNumber(H)}\n_H\n${formatNumber((Cx + nearestX) / 2)},${formatNumber(H + innerShift)}\n`;
+    }
+    if (nearestY !== null) {
+      script += `_DIMLINEAR\n${formatNumber(offsetX)},${formatNumber(Cy)}\n${formatNumber(offsetX)},${formatNumber(nearestY)}\n_V\n${formatNumber(offsetX - innerShift)},${formatNumber((Cy + nearestY) / 2)}\n`;
+    }
+
+    script += inserts;
+    script += `; Inserted ${count} modules\n`;
+    script += '_ZOOM\n_E\n';
+    script += '_CMDECHO\n1\n';
     return script;
   };
 
@@ -3201,17 +3264,7 @@ Use Chain-of-Thought reasoning to:
       }));
 
       // --- เพิ่มการสร้างไฟล์ AutoCAD Script ---
-      const cadScriptStr = generateAutoCADScript(effectiveTemplatePages, docDetails.projectName);
-      
-      // ลบ \uFEFF ออก เพื่อไม่ให้ AutoCAD งงกับตัวอักษร BOM
-      const cadScriptBytes = new TextEncoder().encode(cadScriptStr); 
-      
-      const cadScriptBinary = Array.from(cadScriptBytes).map(b => String.fromCharCode(b)).join('');
-      const cadScriptPayload = {
-        mimeType: 'text/plain',
-        data: window.btoa(cadScriptBinary),
-        name: `${docDetails.projectName || 'Project'}_AutoCAD.scr`
-      };
+      const cadScriptFilesPayload = generateAutoCADScripts(effectiveTemplatePages, docDetails.projectName);
 
       const payload = {
         aoName,
@@ -3221,7 +3274,8 @@ Use Chain-of-Thought reasoning to:
         templateFile: templateFilePayload,
         csvFile: csvFilePayload,
         pricingPdfFile: pricingPdfFilePayload,
-        cadScriptFile: cadScriptPayload, // <--- เพิ่มไฟล์ .scr เข้าไปตรงนี้
+        cadScriptFile: cadScriptFilesPayload[0] || null,
+        cadScriptFiles: cadScriptFilesPayload,
         pricingSummary: {
           totalAreaSqm: pricingSummary.totalAreaSqm,
           totalModules: pricingSummary.totalModules,
