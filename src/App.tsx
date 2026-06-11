@@ -2968,7 +2968,6 @@ Use Chain-of-Thought reasoning to:
     };
   };
 
-  // --- นำฟังก์ชันนี้มาวางเป็นฟังก์ชันส่วนกลาง ---
   const generateAutoCADScripts = (pages: any[], projectName: string): Array<{ mimeType: string; data: string; name: string }> => {
     const scripts: Array<{ mimeType: string; data: string; name: string }> = [];
 
@@ -3078,6 +3077,14 @@ Use Chain-of-Thought reasoning to:
     script += '_CMDECHO\n0\n';
     script += '_INSUNITS\n0\n';
     script += '_OSMODE\n0\n';
+    script += '_SETVAR\nATTREQ\n0\n';
+    script += '_SETVAR\nATTDIA\n0\n';
+
+    script += '_SETVAR\nEXPERT\n3\n';
+    script += `_-LINETYPE\n_L\nDASHED\n\n\n`;
+    script += `_-LINETYPE\n_L\nCENTER\n\n\n`;
+    script += '_SETVAR\nEXPERT\n0\n';
+
     const isRGBW = page.t === 'RGBW' || page.c === 'RGBW';
     const blockName = isRGBW ? 'SLM08_Module' : 'SLM04_Module';
     const displayModuleName = isRGBW ? 'SLM08' : 'SLM04';
@@ -3085,8 +3092,8 @@ Use Chain-of-Thought reasoning to:
     const modH = isRGBW ? 32 : 38.0;
 
     const depthSpacing = getSpacingByDepth(page.d || '');
-    const pageSpaceX = depthSpacing?.x ?? spaceX;
-    const pageSpaceY = depthSpacing?.y ?? spaceY;
+    const pageSpaceX = Number(depthSpacing?.x ?? (typeof spaceX !== 'undefined' ? spaceX : 150)) || 150;
+    const pageSpaceY = Number(depthSpacing?.y ?? (typeof spaceY !== 'undefined' ? spaceY : 150)) || 150;
 
     const offsetX = 0;
     const W = page.bbW;
@@ -3094,7 +3101,9 @@ Use Chain-of-Thought reasoning to:
     const Cx = offsetX + (W / 2);
     const Cy = H / 2;
     const maxSize = Math.max(W, H);
-    const ltScale = clamp(maxSize * 0.0025, 0.2, 15.0);
+    
+    const ltScale = Math.max(maxSize * 0.00021, 0.01);
+    
     const outerShift = clamp(maxSize * 0.14, 45.0, 140.0);
     const innerShift = clamp(maxSize * 0.06, 14.0, 42.0);
     const dimTxtBase = clamp(maxSize * 0.03, 2.5, 40.0);
@@ -3113,26 +3122,39 @@ Use Chain-of-Thought reasoning to:
     const isRectangularShape = shapeKind === 'rectangle';
 
     script += `; --- Type ${index + 1}: ${page.name} ---\n`;
+    
+    script += `_CECOLOR\nBYLAYER\n`;
+    script += `_CELTYPE\nBYLAYER\n`;
     script += emitShapeOutline(shapeKind, page, offsetX, W, H);
 
+    script += `_CELTSCALE\n${formatNumber(ltScale)}\n`;
+
     if (!isRectangularShape) {
+      script += `_CECOLOR\n253\n`; 
+      script += `_CELTYPE\nDASHED\n`;
       script += `_RECTANG\n${formatNumber(offsetX)},0\n${formatNumber(offsetX + W)},${formatNumber(H)}\n`;
     }
 
+    script += `_CECOLOR\n253\n`; 
+    script += `_CELTYPE\nCENTER\n`;
     script += `_LINE\n${formatNumber(offsetX)},${formatNumber(Cy)}\n${formatNumber(offsetX + W)},${formatNumber(Cy)}\n\n`;
     script += `_LINE\n${formatNumber(Cx)},0\n${formatNumber(Cx)},${formatNumber(H)}\n\n`;
 
-    script += `DIMTXT\n${formatNumber(dimTxt)}\nDIMASZ\n${formatNumber(dimAsz)}\nDIMGAP\n${formatNumber(dimGap)}\nDIMEXE\n${formatNumber(dimExe)}\nDIMEXO\n${formatNumber(dimExo)}\nDIMDEC\n0\n`;
+    script += `_CELTSCALE\n1\n`;
+    script += `_CECOLOR\nBYLAYER\n`;
+    script += `_CELTYPE\nBYLAYER\n`;
+
+    script += `DIMTXT\n${formatNumber(dimTxt)}\nDIMASZ\n${formatNumber(dimAsz)}\nDIMGAP\n${formatNumber(dimGap)}\nDIMEXE\n${formatNumber(dimExe)}\nDIMEXO\n${formatNumber(dimExo)}\nDIMDEC\n0\nDIMPOST\n<>mm.\n`;
     script += `_DIMLINEAR\n${formatNumber(offsetX)},${formatNumber(H)}\n${formatNumber(offsetX + W)},${formatNumber(H)}\n_H\n${formatNumber(Cx)},${formatNumber(H + outerShift)}\n`;
     script += `_DIMLINEAR\n${formatNumber(offsetX)},0\n${formatNumber(offsetX)},${formatNumber(H)}\n_V\n${formatNumber(offsetX - outerShift)},${formatNumber(Cy)}\n`;
 
-    const translateRegex = /transform="translate\(([-0-9.]+)[,\s]+([-0-9.]+)\)"/g;
+    const translateRegex = /transform=["']?translate\(\s*([-0-9.eE+-]+)[,\s]+([-0-9.eE+-]+)\s*\)["']?/gi;
     let match: RegExpExecArray | null;
     let count = 0;
-    let nearestX: number | null = null;
-    let nearestY: number | null = null;
-    let minDx = Infinity;
-    let minDy = Infinity;
+    
+    // เก็บพิกัดศูนย์กลาง Module ไว้ทั้งหมด
+    const allX: number[] = [];
+    const allY: number[] = [];
     let inserts = '';
 
     while ((match = translateRegex.exec(page.svgContent)) !== null) {
@@ -3143,28 +3165,83 @@ Use Chain-of-Thought reasoning to:
 
       inserts += `_-INSERT\n${blockName}\n${formatNumber(cadX)},${formatNumber(cadY)}\n1\n1\n0\n`;
       count += 1;
+      
+      allX.push(cadX);
+      allY.push(cadY);
+    }
 
-      const dx = Math.abs(cadX - Cx);
-      const dy = Math.abs(cadY - Cy);
-      if (dx > 1e-6 && dx < minDx) {
+    // ฟังก์ชันหา "เส้น Grid" แบบ Exact Physics (อิงจากภาพวาดที่ส่งมา)
+    const getExactGridLines = (coords: number[], modWidth: number) => {
+      if (coords.length === 0) return [];
+      const sorted = [...new Set(coords.map(c => Number(c.toFixed(2))))].sort((a, b) => a - b);
+      const grids: number[] = [];
+      let i = 0;
+
+      while (i < sorted.length) {
+        // เช็คว่าโมดูลตัวนี้กับตัวถัดไป วางห่างกันเท่ากับ "ความกว้างโมดูล (~44.4 - 45mm)" หรือไม่
+        // ถ้าใช่ = มันคือโมดูลคู่วางชิดกัน (Tunable White Pair)
+        if (i + 1 < sorted.length && Math.abs(sorted[i + 1] - sorted[i] - modWidth) <= 3.5) {
+          // ดึงค่า "Center" (จุดเส้นประสีน้ำเงินในภาพ) มาใช้เป็น Grid Line
+          grids.push((sorted[i] + sorted[i + 1]) / 2);
+          i += 2; // ข้ามไป 2 ตัวเพราะจับคู่ไปแล้ว
+        } else {
+          // ถ้าไม่ใช่ = โมดูลเดี่ยว (วางตัวเดียว)
+          grids.push(sorted[i]);
+          i += 1;
+        }
+      }
+      return [...new Set(grids.map(g => Number(g.toFixed(1))))];
+    };
+
+    // ส่ง modW (44.4mm) เข้าไปเพื่อเป็นเกณฑ์ระยะการจับคู่
+    const gridX = getExactGridLines(allX, modW);
+    const gridY = getExactGridLines(allY, modH);
+
+    let nearestX: number | null = null;
+    let minDx = Infinity;
+
+    // หา Grid ที่แท้จริง ที่ใกล้กับเส้น Center แกน X มากที่สุด (ต้องไม่อยู่ทับ Center พอดี)
+    gridX.forEach(gx => {
+      const dx = Math.abs(gx - Cx);
+      if (dx > 1.0 && dx < minDx) {
         minDx = dx;
-        nearestX = cadX;
+        nearestX = gx;
       }
-      if (dy > 1e-6 && dy < minDy) {
+    });
+
+    if (nearestX === null && gridX.length > 0) {
+      nearestX = Cx + pageSpaceX;
+    }
+
+    let nearestY: number | null = null;
+    let minDy = Infinity;
+
+    // หา Grid ที่แท้จริง ที่ใกล้กับเส้น Center แกน Y มากที่สุด
+    gridY.forEach(gy => {
+      const dy = Math.abs(gy - Cy);
+      if (dy > 1.0 && dy < minDy) {
         minDy = dy;
-        nearestY = cadY;
+        nearestY = gy;
       }
+    });
+
+    if (nearestY === null && gridY.length > 0) {
+      nearestY = Cy + pageSpaceY;
     }
 
     const startY = -(outerShift * 1.2);
     const lineGap = dimTxt * 1.62;
+    const cleanPageName = String(page.name || '').replace(/\s*\([^)]+\)\s*$/, '').trim();
 
-    script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY)}\n${formatNumber(dimTxt * 1.2)}\n0\n${page.name} (${page.q} SETs)\n`;
+    script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY)}\n${formatNumber(dimTxt * 1.2)}\n0\n${cleanPageName} x ${page.q}Sets\n`;
     script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY - lineGap)}\n${formatNumber(dimTxt)}\n0\n${displayModuleName} : ${count} pcs.\n`;
     script += `_-TEXT\n_J\n_TL\n${formatNumber(offsetX)},${formatNumber(startY - lineGap * 2)}\n${formatNumber(dimTxt)}\n0\nSpacing : ${pageSpaceX}x${pageSpaceY} mm.\n`;
-    script += `_-TEXT\n_J\n_TR\n${formatNumber(offsetX + W)},${formatNumber(startY - lineGap * 2)}\n${formatNumber(dimTxt * 0.8)}\n0\n* All dimensions are in mm\n`;
+    
+    // ถูกซ่อนไว้ตาม Requirement ข้อ 1
+    // script += `_-TEXT\n_J\n_TR\n${formatNumber(offsetX + W)},${formatNumber(startY - lineGap * 2)}\n${formatNumber(dimTxt * 0.8)}\n0\n* All dimensions are in mm\n`;
 
     script += `DIMTXT\n${formatNumber(dimTxtInner)}\nDIMASZ\n${formatNumber(dimAszInner)}\nDIMGAP\n${formatNumber(dimGapInner)}\nDIMEXE\n${formatNumber(dimExeInner)}\nDIMEXO\n${formatNumber(dimExoInner)}\nDIMDEC\n0\n`;
+    
     if (nearestX !== null) {
       script += `_DIMLINEAR\n${formatNumber(Cx)},${formatNumber(H)}\n${formatNumber(nearestX)},${formatNumber(H)}\n_H\n${formatNumber((Cx + nearestX) / 2)},${formatNumber(H + innerShift)}\n`;
     }
@@ -3174,6 +3251,7 @@ Use Chain-of-Thought reasoning to:
 
     script += inserts;
     script += `; Inserted ${count} modules\n`;
+    script += `DIMPOST\n.\n`;
     script += '_ZOOM\n_E\n';
     script += '_CMDECHO\n1\n';
     return script;
