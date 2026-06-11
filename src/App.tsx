@@ -2729,7 +2729,7 @@ Use Chain-of-Thought reasoning to:
         }))
       };
 
-      const apiUrl = "https://script.google.com/macros/s/AKfycbxIUw2u9XFWJnLVRnBlgzi_9kM18D5-KQ9gHpg6ho21GsGSoaMJcQLKcPjVVIfqyQF_6A/exec";
+      const apiUrl = "https://script.google.com/macros/s/AKfycbz1aPNyV_lkojrkA758ZAg1esU41lecd857XDCC_CzWrfqecMbvWjfORGz_9bcpK6pm5A/exec";
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูลและไฟล์ไปยัง Google Sheet / GAS...');
@@ -3377,7 +3377,7 @@ Use Chain-of-Thought reasoning to:
         lamps,
       };
 
-      const apiUrl = 'https://script.google.com/macros/s/AKfycbxIUw2u9XFWJnLVRnBlgzi_9kM18D5-KQ9gHpg6ho21GsGSoaMJcQLKcPjVVIfqyQF_6A/exec';
+      const apiUrl = 'https://script.google.com/macros/s/AKfycbz1aPNyV_lkojrkA758ZAg1esU41lecd857XDCC_CzWrfqecMbvWjfORGz_9bcpK6pm5A/exec';
 
       try {
         setSubmitProgressText('กำลังอัปโหลดข้อมูล รอประมาณ 10-20 วินาทีนะครับ');
